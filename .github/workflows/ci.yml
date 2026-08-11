@@ -33,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
-      - run: cd ts && bun install && bun -e "import('./src/index.ts').then(() => console.log('OK')).catch(() => process.exit(1))"
+      - run: cd ts && bun install && GOOGLE_CLIENT_ID=test GOOGLE_CLIENT_SECRET=test GOOGLE_REFRESH_TOKEN=test bun -e "import('./src/index.ts').then(() => console.log('OK')).catch(() => process.exit(1))"
 
   python:
     name: Python
