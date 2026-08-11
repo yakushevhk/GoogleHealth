@@ -33,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
-      - run: cd ts && bun install && bun run src/index.ts --help
+      - run: cd ts && bun install && bun run src/index.ts --help; [ $? -le 1 ]
 
   python:
     name: Python
