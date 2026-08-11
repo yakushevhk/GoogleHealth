@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Insights engine (`src/lib/insights.ts`) + `GET /api/insights` — analytical, non-medical observations (sleep, HRV, RHR, steps, bedtime, recovery, weight) with a Trends panel
 - CSV/JSON export of period series (steps/heart/HRV/sleep/weight) from the Trends page
 - Chart PNG export helper (`chartDataUrl` / `downloadChartPng`) + a "PNG" button on the Heart card
-- i18n (en/ru) dictionary + settings module (card visibility, compact mode, auto-refresh interval, persisted)
+- i18n (en/ru) dictionary + a language toggle in the top bar (`currentLocale`); settings module (card visibility, compact mode, auto-refresh interval, persisted) with a Live settings panel (show/hide cards + Compact + Reset)
 - Configurable auto-refresh (off / 60 s via the UI; other intervals read from settings), hotkeys (`←`/`→`, r/R, t, p)
 - Mobile/tablet layout improvements and compact dashboard mode
 - Security headers (CSP, frame, nosniff, referrer, permissions) + request-id on every response via middleware

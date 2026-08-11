@@ -54,10 +54,12 @@ Missing metrics for a day show as "—"; empty sections are hidden automatically
 ### Dashboard settings
 
 - A settings module stores card visibility and compact mode in `localStorage`;
-  the dashboard applies them on load and on a `gh:settings` event. (A visual
-  settings *panel* is not yet wired up — values are applied when present.)
-- Auto-refresh interval is configurable and read from settings (off / 60 s by
-  default; other intervals can be written directly).
+  the dashboard applies them on load and on a `gh:settings` event. The top bar
+  has a **settings panel** (⚙): show/hide each of the seven cards, toggle
+  compact mode, and reset to defaults.
+- A **language toggle** switches between ru/en (`<html lang>` + a `gh:locale`
+  event). Auto-refresh interval is configurable and read from settings (off /
+  60 s by default; other intervals can be written directly).
 - Keyboard shortcuts: `←`/`→` switch day, `r`/`R` refresh, `t` today, `p` privacy toggle.
 
 ### Privacy

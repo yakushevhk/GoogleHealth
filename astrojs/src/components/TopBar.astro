@@ -34,6 +34,21 @@ const { page = 'day' } = Astro.props;
   </div>
 
   <div class="topbar-right">
+    <button
+      id="gh-lang-btn"
+      class="tb-btn ghost-btn lang-btn"
+      type="button"
+      aria-label="Switch language"
+      title="Language"
+    >RU</button>
+    <button
+      id="gh-settings-btn"
+      class="tb-btn ghost-btn settings-btn"
+      type="button"
+      aria-label="Dashboard settings"
+      aria-expanded="false"
+      title="Dashboard settings"
+    >⚙</button>
     <button id="quick-add-btn" class="quick-add-btn">+ Entry</button>
     <button
       id="gh-refresh-btn"
@@ -48,17 +63,94 @@ const { page = 'day' } = Astro.props;
     </label>
   </div>
   </div>
+
+  <!-- Dashboard settings popover -->
+  <div class="settings-popover" id="gh-settings-panel" hidden aria-label="Dashboard settings panel">
+    <div class="settings-head">
+      <span class="label">Show cards</span>
+      <button id="gh-settings-compact" class="tb-btn ghost-btn compact-toggle" type="button" aria-pressed="false">Compact</button>
+      <button id="gh-settings-reset" class="tb-btn ghost-btn" type="button">Reset</button>
+    </div>
+    <div class="settings-cards" id="gh-settings-cards">
+      <label><input type="checkbox" data-card="vitals" checked /> Vitals</label>
+      <label><input type="checkbox" data-card="activity" checked /> Activity</label>
+      <label><input type="checkbox" data-card="heart" checked /> Heart</label>
+      <label><input type="checkbox" data-card="sleep" checked /> Sleep</label>
+      <label><input type="checkbox" data-card="body" checked /> Body</label>
+      <label><input type="checkbox" data-card="exercise" checked /> Exercise</label>
+      <label><input type="checkbox" data-card="misc" checked /> Misc</label>
+    </div>
+  </div>
 </header>
 
 <QuickWriteModal />
 
 <script>
-  import { loadSummary, loadStatus } from '@lib/store';
+  import { loadSummary, loadStatus, getStatus, subscribeStatus } from '@lib/store';
   import { $, addDaysClient, fetchJson, fmtDateDot, todayLocal } from '@lib/ui';
   import type { PairedDevice } from '@lib/gh-types';
-  import { readSettings, updateSettings } from '@lib/settings';
+  import { CARD_IDS, readSettings, toggleCard, resetSettings, updateSettings } from '@lib/settings';
+  import { currentLocale } from '@lib/i18n';
 
   const page = document.querySelector('.topbar')?.getAttribute('data-page') ?? 'day'
+
+  // ── Language toggle (en/ru) ──
+  const LANG_KEY = 'gh:lang';
+  function applyLang(lang: 'en' | 'ru'): void {
+    window.localStorage.setItem(LANG_KEY, lang);
+    document.documentElement.lang = lang;
+    document.dispatchEvent(new CustomEvent('gh:locale', { detail: { lang } }));
+    const btn = $('#gh-lang-btn');
+    if (btn) btn.textContent = lang === 'ru' ? 'EN' : 'RU'; // shows the target
+  }
+  $('#gh-lang-btn')?.addEventListener('click', () => {
+    const cur = currentLocale(window.localStorage.getItem(LANG_KEY), document.documentElement.lang);
+    applyLang(cur === 'ru' ? 'en' : 'ru');
+  });
+  applyLang(currentLocale(window.localStorage.getItem(LANG_KEY), document.documentElement.lang));
+
+  // ── Dashboard settings panel (card visibility + compact) ──
+  function applySettingsPanel(): void {
+    const s = readSettings(window.localStorage);
+    document.querySelectorAll<HTMLInputElement>('#gh-settings-cards input[data-card]').forEach((el) => {
+      const id = el.dataset.card as (typeof CARD_IDS)[number] | undefined;
+      if (id) el.checked = s.visible[id];
+    });
+    const compactBtn = $('#gh-settings-compact') as HTMLButtonElement | null;
+    compactBtn?.setAttribute('aria-pressed', String(s.compact));
+  }
+  $('#gh-settings-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const panel = $('#gh-settings-panel');
+    const open = panel ? !panel.hidden : false;
+    if (panel) panel.hidden = open;
+    $('#gh-settings-btn')?.setAttribute('aria-expanded', String(!open));
+    if (!open) applySettingsPanel();
+  });
+  document.addEventListener('click', (e) => {
+    const panel = $('#gh-settings-panel');
+    if (!panel || panel.hidden) return;
+    if (!(e.target as Element)?.closest('#gh-settings-btn, #gh-settings-panel')) panel.hidden = true;
+  });
+  $('#gh-settings-cards')?.addEventListener('change', (e) => {
+    const input = (e.target as HTMLInputElement | null);
+    const id = input?.dataset.card as (typeof CARD_IDS)[number] | undefined;
+    if (!id || !input) return;
+    toggleCard(window.localStorage, id, input.checked);
+    window.dispatchEvent(new CustomEvent('gh:settings'));
+  });
+  $('#gh-settings-compact')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const s = readSettings(window.localStorage);
+    updateSettings(window.localStorage, { compact: !s.compact });
+    window.dispatchEvent(new CustomEvent('gh:settings'));
+    applySettingsPanel();
+  });
+  $('#gh-settings-reset')?.addEventListener('click', () => {
+    resetSettings(window.localStorage);
+    window.dispatchEvent(new CustomEvent('gh:settings'));
+    applySettingsPanel();
+  });
 
   $('#quick-add-btn')?.addEventListener('click', () => {
     window.openQuickWriteModal?.('weight');
@@ -80,6 +172,19 @@ const { page = 'day' } = Astro.props;
     }
   }
   void loadIdentity();
+  void loadStatus();
+
+  // Reflect /api/status: if OAuth is not configured, show "setup required"
+  // instead of a generic connection error (the conn-error span is reused).
+  const connEl = $('#gh-conn-error');
+  function renderStatus(): void {
+    const s = getStatus();
+    if (!s) return;
+    const hasSuggestion = s.oauth && (!s.oauth.hasClientId || !s.oauth.hasClientSecret || !s.oauth.hasRefreshToken);
+    connEl!.hidden = !hasSuggestion;
+    connEl!.textContent = 'setup required';
+  }
+  subscribeStatus(renderStatus);
 
   if (page === 'day') {
     const label = $('#gh-date-label')!;
@@ -244,6 +349,42 @@ const { page = 'day' } = Astro.props;
   @media (prefers-reduced-motion: reduce) {
     .tb-btn.ghost-btn.spinning { animation: none; }
   }
+  .lang-btn { min-width: 32px; }
+  .settings-btn { min-width: 30px; }
+  .settings-popover {
+    position: absolute;
+    top: calc(100% - 6px);
+    right: 20px;
+    z-index: 60;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    min-width: 220px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  }
+  .settings-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .settings-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 14px;
+  }
+  .settings-cards label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+  .settings-cards input { accent-color: var(--accent-text); }
+  .compact-toggle[aria-pressed="true"] { color: var(--text); border-color: var(--border-hover); }
   .quick-add-btn {
     background: var(--text);
     color: #000;
