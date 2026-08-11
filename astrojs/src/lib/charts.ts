@@ -119,3 +119,47 @@ export function paintEmpty(chart: echarts.ECharts, label = 'no data'): void {
     true,
   );
 }
+
+/**
+ * Render the current chart to a data URL (PNG by default) or SVG for download.
+ * Returns `null` on error / no instance.
+ */
+export function chartDataUrl(
+  chart: echarts.ECharts | undefined | null,
+  format: 'png' | 'svg' = 'png',
+): string | null {
+  if (!chart) return null;
+  try {
+    const isSvg = format === 'svg';
+    // SVG renderer is not bundled here; PNG is the reliable path.
+    if (isSvg) return null;
+    const url = chart.getDataURL({
+      type: 'png',
+      pixelRatio: 2,
+      backgroundColor: '#000000',
+    });
+    return typeof url === 'string' && url.length ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Trigger a download of a data URL (PNG) with the configured stem + date. */
+export function downloadChartPng(
+  chart: echarts.ECharts | undefined | null,
+  stem: string,
+): boolean {
+  const url = chartDataUrl(chart, 'png');
+  if (!url) return false;
+  try {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${stem}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    return true;
+  } catch {
+    return false;
+  }
+}

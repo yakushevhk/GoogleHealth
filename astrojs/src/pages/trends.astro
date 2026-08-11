@@ -33,11 +33,36 @@ import DevicesFooter from '../components/DevicesFooter.astro';
     <main class="wrap">
       <div class="trends-head reveal" style="--i:0">
         <span class="card-title dim" id="tr-title">30-day summary</span>
-        <div class="range-toggle" id="tr-range" role="group" aria-label="Trend range">
-          <button data-days="30" class="on" aria-pressed="true">30</button>
-          <button data-days="90" aria-pressed="false">90</button>
+        <div class="tr-actions">
+          <div class="range-toggle" id="tr-range" role="group" aria-label="Trend range">
+            <button data-days="30" class="on" aria-pressed="true">30</button>
+            <button data-days="90" aria-pressed="false">90</button>
+          </div>
+          <label class="export-wrap">
+            <span class="label export-label" id="gh-export-label">Export</span>
+            <select id="gh-export-select" aria-label="Export the selected period">
+              <option value="">—</option>
+              <option value="steps-csv">Steps · CSV</option>
+              <option value="steps-json">Steps · JSON</option>
+              <option value="heart-json">Heart · JSON</option>
+              <option value="hrv-csv">HRV · CSV</option>
+              <option value="sleep-csv">Sleep · CSV</option>
+              <option value="weight-csv">Weight · CSV</option>
+            </select>
+          </label>
         </div>
       </div>
+
+      <!-- Insights (analytical observations, not medical advice) -->
+      <section class="panel card reveal compare-section" style="--i:0.5">
+        <div class="card-head">
+          <span class="card-title dim">Insights</span>
+          <span class="label" id="insights-period"></span>
+        </div>
+        <div id="insights-list" role="list" aria-label="Health insights">
+          <span class="skel" style="height:14px;width:70%"></span>
+        </div>
+      </section>
 
       <!-- Period comparison (Compare Health Periods) -->
       <section class="panel card reveal compare-section" style="--i:0.5">
@@ -232,6 +257,12 @@ import DevicesFooter from '../components/DevicesFooter.astro';
         weekOverWeekPct,
       } from '@lib/stats';
       import { $, countUp, fetchJson, fmt, fmtDuration, initReveal, setChartSummary } from '@lib/ui';
+      import {
+        downloadMeta,
+        toCsv,
+        toJson,
+        triggerDownload,
+      } from '@lib/exports';
 
       initReveal();
 
@@ -909,9 +940,117 @@ import DevicesFooter from '../components/DevicesFooter.astro';
       // Comparison no longer runs automatically on each /trends visit:
       // it makes 14 Google API requests for two numbers. Now — on button click.
       void loadAll(days);
+
+      // ── Insights (analytical observations, not medical advice) ──
+      interface Insight { key: string; severity: 'info'|'warn'|'good'; title: string; detail?: string }
+      async function loadInsights(): Promise<void> {
+        const box = $('#insights-list');
+        const period = $('#insights-period');
+        if (!box) return;
+        const cls = (sev: Insight['severity']) =>
+          sev === 'warn' ? 'ins-warn' : sev === 'good' ? 'ins-good' : 'ins-info';
+        const mark = (sev: Insight['severity']) => (sev === 'warn' ? '!' : sev === 'good' ? '✓' : '·');
+        try {
+          const resp = await fetchJson<{ days: number; insights: Insight[] }>(
+            `/api/insights?days=${days}`,
+          );
+          if (period) period.textContent = `${resp.days} days`;
+          box.innerHTML =
+            resp.insights.length > 0
+              ? resp.insights
+                  .map(
+                    (i) =>
+                      `<div class="ins-item ${cls(i.severity)}" role="listitem">
+                        <span class="ins-mark">${mark(i.severity)}</span>
+                        <div><b>${i.title}</b>${i.detail ? `<span class="faint"> · ${i.detail}</span>` : ''}</div>
+                      </div>`,
+                  )
+                  .join('')
+              : '<div class="empty-note">No significant changes detected.</div>';
+        } catch {
+          if (period) period.textContent = '';
+          box.innerHTML = '<div class="empty-note">Unable to load insights.</div>';
+        }
+      }
+
+      // ── Export (CSV / JSON) ──
+      const EXPORT_MAP: Record<string, { type: string; field: string; label: string }> = {
+        'steps-csv': { type: 'steps', field: 'sum', label: 'steps' },
+        'steps-json': { type: 'steps', field: 'sum', label: 'steps' },
+        'hrv-csv': { type: 'daily-heart-rate-variability', field: 'avg', label: 'hrv' },
+        'heart-json': { type: 'daily-heart-rate-variability', field: 'avg', label: 'hrv' },
+        'sleep-csv': { type: 'sleep', field: 'asleepMinutes', label: 'sleep' },
+        'weight-csv': { type: 'weight', field: 'avg', label: 'weight' },
+      };
+      function downloadRows(rows: unknown[], stem: string, format: 'csv' | 'json'): void {
+        const meta = downloadMeta(format);
+        const data =
+          format === 'csv'
+            ? toCsv(rows as { date: string; [k: string]: unknown }[])
+            : toJson(rows as { date: string; [k: string]: unknown }[]);
+        triggerDownload(data, `${stem}.${meta.ext}`, meta.type);
+      }
+
+      const exportSel = document.getElementById('gh-export-select') as HTMLSelectElement | null;
+      exportSel?.addEventListener('change', async () => {
+        const v = exportSel.value ?? '';
+        exportSel.value = '';
+        const spec = EXPORT_MAP[v];
+        if (!spec) return;
+        const stem = `googlehealth-${spec.label}-${todayStr}`;
+        try {
+          const resp = await fetchJson<{ points?: { date?: string; sum?: number; avg?: number }[]; sessions?: { date?: string; asleepMinutes?: number | null }[] }>(
+            `/api/history?type=${spec.type}&days=${days}&date=${todayStr}`,
+          );
+          if (spec.type === 'sleep') {
+            downloadRows(
+              (resp.sessions ?? []).map((s) => ({ date: s.date, asleepMinutes: s.asleepMinutes ?? null })),
+              stem,
+              v.endsWith('-json') ? 'json' : 'csv',
+            );
+          } else {
+            const field = spec.field as 'sum' | 'avg';
+            downloadRows(
+              (resp.points ?? []).map((p) => ({
+                date: p.date,
+                [spec.label]:
+                  spec.type === 'weight' && p[field] != null
+                    ? (p[field] as number) / 1000
+                    : (p[field] ?? null),
+              })),
+              stem,
+              v.endsWith('-json') ? 'json' : 'csv',
+            );
+          }
+        } catch {
+          /* export failed silently — data likely unavailable */
+        }
+      });
+
+      void loadInsights();
     </script>
 
     <style>
+      .tr-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+      .export-wrap { display: inline-flex; align-items: center; gap: 6px; }
+      .export-label { color: var(--text-faint); }
+      .export-wrap select {
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        color: var(--text);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        padding: 5px 8px;
+        border-radius: 2px;
+        cursor: pointer;
+      }
+      .ins-item { display: flex; gap: 10px; align-items: baseline; font-size: 13px; }
+      .ins-item { padding: 6px 0; border-bottom: 1px solid var(--border); }
+      .ins-item:last-child { border-bottom: none; }
+      .ins-item .ins-mark { font-family: var(--font-mono); font-weight: 600; }
+      .ins-warn .ins-mark { color: var(--accent-text); }
+      .ins-good .ins-mark { color: var(--green); }
+      .ins-info .ins-mark { color: var(--text-dim); }
       .compare-section {
         margin-bottom: 20px;
         padding: 20px;
