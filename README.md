@@ -1,6 +1,31 @@
 # Google Health MCP Server
 
+[![CI](https://github.com/yakushevhk/GoogleHealth/actions/workflows/ci.yml/badge.svg)](https://github.com/yakushevhk/GoogleHealth/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/Rust-0.2.0-orange)](src/)
+[![Go](https://img.shields.io/badge/Go-0.2.0-00ADD8)](go/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-0.2.0-3178C6)](ts/)
+[![Python](https://img.shields.io/badge/Python-0.2.0-3776AB)](py/)
+
 Full access to the **Google Health API v4** via MCP. **35 tools**, 4 resources, 3 prompts, 39 data types, built-in response cache with TTL.
+
+---
+
+## Table of Contents
+
+- [Implementations](#implementations)
+- [Quick Start](#quick-start)
+- [Environment Variables](#environment-variables)
+- [MCP Client Configuration](#mcp-client-configuration)
+- [Tools (35)](#tools-35)
+- [Data Types (39)](#data-types-39)
+- [Filter Syntax](#filter-syntax)
+- [Resources & Prompts](#resources-4)
+- [Docker](#docker)
+- [Documentation](#documentation)
+- [License](#license)
+
+---
 
 ## Implementations
 
@@ -68,7 +93,7 @@ MCP_API_KEY="your-secret-key" ./target/release/google-health-mcp --http
 
 ## MCP Client Configuration
 
-**stdio (Claude Desktop / ZCode):**
+### Claude Desktop / ZCode — Rust (recommended)
 
 ```json
 {
@@ -85,7 +110,59 @@ MCP_API_KEY="your-secret-key" ./target/release/google-health-mcp --http
 }
 ```
 
-**HTTP:**
+### Claude Desktop / ZCode — Python
+
+```json
+{
+  "mcpServers": {
+    "google-health": {
+      "command": "google-health-mcp",
+      "env": {
+        "GOOGLE_CLIENT_ID": "your-client-id",
+        "GOOGLE_CLIENT_SECRET": "your-client-secret",
+        "GOOGLE_REFRESH_TOKEN": "your-refresh-token"
+      }
+    }
+  }
+}
+```
+
+### Claude Desktop / ZCode — TypeScript (Bun)
+
+```json
+{
+  "mcpServers": {
+    "google-health": {
+      "command": "bun",
+      "args": ["run", "/path/to/ts/src/index.ts"],
+      "env": {
+        "GOOGLE_CLIENT_ID": "your-client-id",
+        "GOOGLE_CLIENT_SECRET": "your-client-secret",
+        "GOOGLE_REFRESH_TOKEN": "your-refresh-token"
+      }
+    }
+  }
+}
+```
+
+### Claude Desktop / ZCode — Go
+
+```json
+{
+  "mcpServers": {
+    "google-health": {
+      "command": "/path/to/go/googlehealth-mcp-go",
+      "env": {
+        "GOOGLE_CLIENT_ID": "your-client-id",
+        "GOOGLE_CLIENT_SECRET": "your-client-secret",
+        "GOOGLE_REFRESH_TOKEN": "your-refresh-token"
+      }
+    }
+  }
+}
+```
+
+### HTTP (any language, remote)
 
 ```json
 {

@@ -1,0 +1,46 @@
+name: Bug Report
+description: Report a bug in Google Health MCP Server
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: language
+    attributes:
+      label: Implementation
+      options:
+        - Rust
+        - Go
+        - TypeScript
+        - Python
+        - C
+        - Zig
+        - Astro.js Dashboard
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: "0.2.0"
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Configure MCP server with...
+        2. Call tool...
+        3. See error...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Error output
+      render: shell
