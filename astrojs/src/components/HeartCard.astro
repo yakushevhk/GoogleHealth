@@ -1,0 +1,639 @@
+---
+/**
+ * Heart: HR granularity (1 min / 1 h / averages / both), resting HR trends
+ * and HRV for 7/30/90 days, HRV and SpO₂ for the day, arrhythmia notifications (IRN),
+ * readiness score by HRV+RHR for 14 days.
+ */
+---
+
+<section class="panel card reveal b-heart" style="--i:2" id="heart-card">
+  <div class="card-head">
+    <span class="card-title hr-title">Heart</span>
+    <div class="hr-controls">
+      <div class="range-toggle" id="hr-mode" role="group" aria-label="HR Granularity">
+        <button data-mode="1m" aria-pressed="false">1 min</button>
+        <button data-mode="1h" class="on" aria-pressed="true">1 h</button>
+        <button data-mode="avg" aria-pressed="false">Averages</button>
+        <button data-mode="both" aria-pressed="false">Both</button>
+      </div>
+      <div class="range-toggle" id="hr-range" role="group" aria-label="Heart trend range">
+        <button data-days="7" aria-pressed="false">7</button>
+        <button data-days="30" class="on" aria-pressed="true">30</button>
+        <button data-days="90" aria-pressed="false">90</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="chart chart-hr-intraday" id="chart-hr-intraday" role="img" aria-label="Heart rate chart for the day">
+    <span class="chart-sr visually-hidden">No heart rate data for this day.</span>
+  </div>
+
+  <!-- "Averages" mode: large daily numbers + 7-day mini-trend -->
+  <div class="hr-avg-grid" id="hr-avg-grid" hidden>
+    <div class="hr-avg-cell hr-main">
+      <span class="label">Average</span>
+      <span class="hr-avg-num empty" id="hr-day-avg">—</span>
+      <span class="vital-unit">bpm · daily</span>
+    </div>
+    <div class="hr-avg-cell">
+      <span class="label">Minimum</span>
+      <span class="hr-avg-num empty" id="hr-day-min">—</span>
+      <span class="vital-unit">bpm</span>
+    </div>
+    <div class="hr-avg-cell">
+      <span class="label">Maximum</span>
+      <span class="hr-avg-num empty" id="hr-day-max">—</span>
+      <span class="vital-unit">bpm</span>
+    </div>
+    <div class="hr-avg-cell">
+      <span class="label">Rest</span>
+      <span class="hr-avg-num empty" id="hr-day-rhr">—</span>
+      <span class="vital-unit">bpm · rhr</span>
+    </div>
+    <div class="hr-avg-cell hr-avg-wide">
+      <span class="label">7 days · daily average</span>
+      <div class="hr-week-wrap" id="hr-week-spark"></div>
+      <span class="vital-unit" id="hr-week-note"></span>
+    </div>
+  </div>
+
+  <div class="trend-pair">
+    <div class="trend-box">
+      <span class="label">Daily HRV, ms</span>
+      <div class="chart chart-trend" id="chart-hrv-intraday" role="img" aria-label="Daily heart rate variability, milliseconds">
+        <span class="chart-sr visually-hidden">No HRV samples for this day.</span>
+      </div>
+    </div>
+    <div class="trend-box">
+      <span class="label">Daily SpO₂, %</span>
+      <div class="chart chart-trend" id="chart-spo2-intraday" role="img" aria-label="Daily oxygen saturation, percent">
+        <span class="chart-sr visually-hidden">No SpO₂ samples for this day.</span>
+      </div>
+      <div class="desat-note" id="spo2-desat" hidden></div>
+    </div>
+  </div>
+  <div class="trend-pair">
+    <div class="trend-box">
+      <span class="label">Resting HR, bpm</span>
+      <div class="chart chart-trend" id="chart-rhr-trend" role="img" aria-label="Resting heart rate trend">
+        <span class="chart-sr visually-hidden">No resting heart rate data.</span>
+      </div>
+    </div>
+    <div class="trend-box">
+      <span class="label">HRV · RMSSD, ms</span>
+      <div class="chart chart-trend" id="chart-hrv-trend" role="img" aria-label="Heart rate variability trend, RMSSD in milliseconds">
+        <span class="chart-sr visually-hidden">No HRV trend data.</span>
+      </div>
+    </div>
+  </div>
+  <div class="irn-note" id="hr-irn" hidden></div>
+  <div class="readiness" id="hr-readiness" hidden>
+    <span class="readiness-dot"></span>
+    <span>Readiness · 14 d</span>
+    <b id="readiness-level">—</b>
+    <span class="readiness-nums" id="readiness-nums"></span>
+  </div>
+</section>
+
+<script>
+  import {
+    AXIS_COLOR,
+    DIM,
+    GRAY,
+    GRAY_LT,
+    LABEL_COLOR,
+    RED,
+    WHITE,
+    baseOpts,
+    initChart,
+    paintEmpty,
+    timeAxis,
+    valueAxis,
+  } from '@lib/charts';
+  import { toNumber } from '@lib/extract';
+  import { localOffsetMin } from '@lib/filters';
+  import type { DaySummary } from '@lib/gh-types';
+  import { desatStats, mean } from '@lib/stats';
+  import { getCurrentSummary, subscribeSummary } from '@lib/store';
+  import {
+    $,
+    fetchJson,
+    fmt,
+    fmtTime,
+    isConnError,
+    onDate,
+    setChartSummary,
+    sparkline,
+  } from '@lib/ui';
+
+  interface SeriesPoint { date?: string; time?: string; avg?: number; min?: number; max?: number }
+  interface SeriesResp { points: SeriesPoint[] }
+  interface ListResp { dataPoints?: Record<string, unknown>[] }
+  interface ReadinessResp {
+    readiness?: string;
+    hrv?: { avg?: number };
+    restingHr?: { avg?: number };
+  }
+
+  type HrMode = '1m' | '1h' | 'avg' | 'both';
+
+  const hrChart = initChart($('#chart-hr-intraday')!);
+  const rhrChart = initChart($('#chart-rhr-trend')!);
+  const hrvChart = initChart($('#chart-hrv-trend')!);
+  const hrvIntraChart = initChart($('#chart-hrv-intraday')!);
+  const spo2IntraChart = initChart($('#chart-spo2-intraday')!);
+  let days = 30;
+  let mode: HrMode = '1h';
+  let curDate = '';
+
+  /** Screen-reader summary for the heart-rate chart (avg/min/max over points). */
+  function setHrSummary(pts: SeriesPoint[]): void {
+    const avgs = pts.map((p) => p.avg).filter((v): v is number => v !== undefined);
+    if (avgs.length === 0) {
+      setChartSummary($('#chart-hr-intraday'), 'No heart rate data for this day.');
+      return;
+    }
+    const avg = avgs.reduce((a, b) => a + b, 0) / avgs.length;
+    const min = Math.min(...avgs);
+    const max = Math.max(...avgs);
+    setChartSummary(
+      $('#chart-hr-intraday'),
+      `Heart rate for the day: average ${Math.round(avg)} bpm, minimum ${Math.round(min)}, maximum ${Math.round(max)}.`,
+    );
+  }
+
+  // ── Intraday HR (time axis: minute and hourly series combined) ──
+
+  /** [time, value][] for ECharts time axis */
+  const toTimeSeries = (pts: SeriesPoint[], key: 'avg' | 'min' | 'max'): [string, number | null][] =>
+    pts.map((p) => [p.time ?? '', p[key] ?? null]);
+
+  function hrTooltip(pts: SeriesPoint[]): Record<string, unknown> {
+    return {
+      ...(baseOpts().tooltip as object),
+      trigger: 'axis',
+      axisPointer: { type: 'line', lineStyle: { color: DIM } },
+      formatter: (params: { seriesName: string; value: [string, number | null] }[]) => {
+        const first = params.find((p) => p.value?.[0]);
+        if (!first) return '';
+        const t = fmtTime(first.value[0]);
+        // Nearest hour point: searching for minute match in hourly points
+        const near =
+          pts.find((p) => p.time === first.value[0]) ??
+          pts.reduce<SeriesPoint | null>((acc, p) => {
+            if (!p.time || p.avg === undefined) return acc;
+            if (!acc) return p;
+            return Math.abs(new Date(p.time).getTime() - new Date(first.value[0]).getTime()) <
+              Math.abs(new Date(acc.time!).getTime() - new Date(first.value[0]).getTime())
+              ? p
+              : acc;
+          }, null);
+        const lines = params
+          .filter(
+            (p) =>
+              p.value?.[1] != null && p.seriesName !== 'min' && p.seriesName !== 'range',
+          )
+          .map((p) => `${p.seriesName}: <b>${Math.round(p.value[1] as number)}</b>`);
+        const range =
+          near && near.min !== undefined && near.max !== undefined
+            ? `<br/>${t} · min ${near.min} – max ${near.max}`
+            : `<br/>${t}`;
+        return range + '<br/>' + lines.join('<br/>');
+      },
+    };
+  }
+
+  function renderHourly(pts: SeriesPoint[]): void {
+    hrChart.setOption({
+      ...baseOpts(),
+      tooltip: hrTooltip(pts),
+      xAxis: { type: 'time', axisLine: { lineStyle: { color: AXIS_COLOR } }, axisTick: { show: false }, axisLabel: { color: LABEL_COLOR, fontSize: 10, hideOverlap: true } },
+      yAxis: valueAxis(),
+      series: [
+        {
+          name: 'min',
+          type: 'line',
+          data: toTimeSeries(pts, 'min'),
+          stack: 'band',
+          symbol: 'none',
+          lineStyle: { opacity: 0 },
+          areaStyle: { opacity: 0 },
+          emphasis: { disabled: true },
+          silent: true,
+        },
+        {
+          name: 'range',
+          type: 'line',
+          data: pts.map((p) => [
+            p.time ?? '',
+            p.min !== undefined && p.max !== undefined ? p.max - p.min : null,
+          ]),
+          stack: 'band',
+          symbol: 'none',
+          lineStyle: { opacity: 0 },
+          areaStyle: { color: RED, opacity: 0.14 },
+          emphasis: { disabled: true },
+          silent: true,
+        },
+        {
+          name: 'average',
+          type: 'line',
+          data: toTimeSeries(pts, 'avg'),
+          symbol: 'none',
+          lineStyle: { color: RED, width: 2 },
+          itemStyle: { color: RED },
+        },
+      ],
+    }, true);
+    setHrSummary(pts);
+  }
+
+  function renderMinute(pts: SeriesPoint[], dayAvg: number | null): void {
+    hrChart.setOption({
+      ...baseOpts(),
+      animation: false, // 1440 points — no animation
+      tooltip: hrTooltip(pts),
+      xAxis: { type: 'time', axisLine: { lineStyle: { color: AXIS_COLOR } }, axisTick: { show: false }, axisLabel: { color: LABEL_COLOR, fontSize: 10, hideOverlap: true } },
+      yAxis: valueAxis(),
+      series: [
+        {
+          name: 'per-minute',
+          type: 'line',
+          data: toTimeSeries(pts, 'avg'),
+          symbol: 'none',
+          lineStyle: { color: RED, width: 1, opacity: 0.9 },
+          itemStyle: { color: RED },
+          areaStyle: { color: RED, opacity: 0.06 },
+          markLine: dayAvg
+            ? {
+                symbol: 'none',
+                animation: false,
+                lineStyle: { color: GRAY, type: 'dashed', width: 1 },
+                label: { color: LABEL_COLOR, fontSize: 9, formatter: `avg ${Math.round(dayAvg)}` },
+          data: [{ yAxis: dayAvg }],
+                }
+              : undefined,
+        },
+      ],
+    }, true);
+    setHrSummary(pts);
+  }
+
+  function renderBoth(minPts: SeriesPoint[], hourPts: SeriesPoint[]): void {
+    hrChart.setOption({
+      ...baseOpts(),
+      animation: false,
+      tooltip: hrTooltip(hourPts),
+      xAxis: { type: 'time', axisLine: { lineStyle: { color: AXIS_COLOR } }, axisTick: { show: false }, axisLabel: { color: LABEL_COLOR, fontSize: 10, hideOverlap: true } },
+      yAxis: valueAxis(),
+      series: [
+        {
+          name: 'per-minute',
+          type: 'line',
+          data: toTimeSeries(minPts, 'avg'),
+          symbol: 'none',
+          lineStyle: { color: GRAY, width: 1, opacity: 0.7 },
+          itemStyle: { color: GRAY },
+          z: 1,
+        },
+        {
+          name: 'hourly average',
+          type: 'line',
+          data: toTimeSeries(hourPts, 'avg'),
+          symbol: 'none',
+          lineStyle: { color: RED, width: 2 },
+          itemStyle: { color: RED },
+          z: 2,
+        },
+      ],
+    }, true);
+    setHrSummary(hourPts);
+  }
+
+  async function fetchIntraday(date: string, windowSize: string): Promise<SeriesPoint[]> {
+    const resp = await fetchJson<SeriesResp>(
+      `/api/intraday?type=heart-rate&date=${date}&window=${windowSize}&offsetMin=${localOffsetMin()}`,
+    );
+    return resp.points.filter((p) => p.avg !== undefined);
+  }
+
+  async function loadHeartRate(date: string): Promise<void> {
+    const chartEl = $('#chart-hr-intraday')!;
+    const avgEl = $('#hr-avg-grid')!;
+    try {
+      if (mode === 'avg') {
+        chartEl.hidden = true;
+        avgEl.hidden = false;
+        void loadAvgMode(date);
+        return;
+      }
+      chartEl.hidden = false;
+      avgEl.hidden = true;
+      hrChart.resize();
+
+      if (mode === '1h') {
+        renderHourly(await fetchIntraday(date, '3600s'));
+      } else if (mode === '1m') {
+        const [pts, day] = await Promise.all([
+          fetchIntraday(date, '60s'),
+          fetchJson<SeriesResp>(`/api/intraday?type=heart-rate&date=${date}&window=86400s&offsetMin=${localOffsetMin()}`).catch(() => ({ points: [] as SeriesPoint[] })),
+        ]);
+        renderMinute(pts, day.points[0]?.avg ?? null);
+      } else {
+        const [minPts, hourPts] = await Promise.all([
+          fetchIntraday(date, '60s'),
+          fetchIntraday(date, '3600s'),
+        ]);
+        renderBoth(minPts, hourPts);
+      }
+    } catch (e) {
+      // Calm placeholder instead of raw OAuth text; canvas stays
+      // alive, so on connection recovery auto-refresh/date change
+      // will redraw the chart without page reload.
+      const msg = e instanceof Error ? e.message : 'Error';
+      paintEmpty(hrChart, isConnError(msg) ? 'no connection to Google Health' : 'no data');
+    }
+  }
+
+  // ── "Averages" mode: numbers from summary + weekly mini-trend ──
+
+  function setNum(id: string, v: number | null | undefined): void {
+    const el = $(`#${id}`)!;
+    if (v == null) {
+      el.textContent = '—';
+      el.classList.add('empty');
+    } else {
+      el.textContent = fmt(v);
+      el.classList.remove('empty');
+    }
+  }
+
+  function renderAvgFromSummary(s: DaySummary | null): void {
+    setNum('hr-day-avg', s ? toNumber(s.heart_rate?.beatsPerMinuteAvg) : null);
+    setNum('hr-day-min', s ? toNumber(s.heart_rate?.beatsPerMinuteMin) : null);
+    setNum('hr-day-max', s ? toNumber(s.heart_rate?.beatsPerMinuteMax) : null);
+    setNum('hr-day-rhr', s ? toNumber(s.resting_heart_rate?.beatsPerMinute) : null);
+  }
+
+  async function loadAvgMode(date: string): Promise<void> {
+    // Daily numbers — from common summary (already loaded by TopBar)
+    const s = getCurrentSummary();
+    if (s && s.date === date) {
+      renderAvgFromSummary(s);
+    } else {
+      // fallback: daily rollup in one request
+      try {
+        const day = await fetchIntraday(date, '86400s');
+        const p = day[0];
+        setNum('hr-day-avg', p?.avg ?? null);
+        setNum('hr-day-min', p?.min ?? null);
+        setNum('hr-day-max', p?.max ?? null);
+        setNum('hr-day-rhr', null);
+      } catch {
+        renderAvgFromSummary(null);
+      }
+    }
+    // Mini-trend of averages for 7 days
+    try {
+      const week = await fetchJson<SeriesResp>(`/api/history?type=heart-rate&days=7&date=${date}`);
+      const vals = week.points.map((p) => p.avg ?? null);
+      $('#hr-week-spark')!.innerHTML =
+        sparkline(vals, { color: RED, w: 260, h: 34, fill: false }) ||
+        '<span class="empty-note">no data</span>';
+      const nums = vals.filter((v): v is number => v !== null);
+      $('#hr-week-note')!.textContent = nums.length
+        ? `wk avg ${fmt(nums.reduce((a, b) => a + b, 0) / nums.length)} bpm`
+        : '';
+    } catch {
+      $('#hr-week-spark')!.innerHTML = '<span class="empty-note">no data</span>';
+    }
+  }
+
+  // Summary subscription: in "Averages" mode numbers update with it
+  subscribeSummary((summary) => {
+    if (mode === 'avg' && summary && summary.date === curDate) {
+      renderAvgFromSummary(summary);
+    }
+  });
+
+  // ── Resting HR and HRV trends ──
+  function trendOpts(points: SeriesPoint[], color: string): Record<string, unknown> {
+    return {
+      ...baseOpts(),
+      grid: { left: 34, right: 8, top: 8, bottom: 20 },
+      tooltip: { ...(baseOpts().tooltip as object), trigger: 'axis' },
+      xAxis: {
+        ...timeAxis(),
+        data: points.map((p) => p.date?.slice(5) ?? ''),
+        boundaryGap: false,
+        axisLabel: { color: LABEL_COLOR, fontSize: 9, interval: Math.ceil(points.length / 6) },
+      },
+      yAxis: { ...valueAxis(), splitLine: { lineStyle: { color: AXIS_COLOR, opacity: 0.3 } } },
+      series: [
+        {
+          type: 'line',
+          data: points.map((p) => p.avg ?? null),
+          symbol: 'none',
+          connectNulls: true,
+          lineStyle: { color, width: 1.8 },
+          itemStyle: { color },
+          areaStyle: { color, opacity: 0.07 },
+        },
+      ],
+    };
+  }
+
+  async function loadTrends(date: string): Promise<void> {
+    const [rhr, hrv] = await Promise.allSettled([
+      fetchJson<SeriesResp>(`/api/history?type=daily-resting-heart-rate&days=${days}&date=${date}`),
+      fetchJson<SeriesResp>(`/api/history?type=daily-heart-rate-variability&days=${days}&date=${date}`),
+    ]);
+    // points may be absent in response — without ?. it threw outside try/catch,
+    // and the chart stayed on skeleton.
+    const rhrPts = rhr.status === 'fulfilled' ? rhr.value.points ?? [] : [];
+    if (rhrPts.length > 0) {
+      rhrChart.setOption(trendOpts(rhrPts, RED), true);
+      setChartSummary(
+        $('#chart-rhr-trend'),
+        `Resting heart rate over ${rhrPts.length} days, average ${fmt(mean(rhrPts.map((p) => p.avg).filter((v): v is number => v !== undefined)))} bpm.`,
+      );
+    } else {
+      paintEmpty(rhrChart);
+    }
+    const hrvPts = hrv.status === 'fulfilled' ? hrv.value.points ?? [] : [];
+    if (hrvPts.length > 0) {
+      hrvChart.setOption(trendOpts(hrvPts, GRAY_LT), true);
+      setChartSummary(
+        $('#chart-hrv-trend'),
+        `Heart rate variability over ${hrvPts.length} days, average ${fmt(mean(hrvPts.map((p) => p.avg).filter((v): v is number => v !== undefined)), 1)} ms.`,
+      );
+    } else {
+      paintEmpty(hrvChart);
+    }
+  }
+
+  // ── Raw samples for the day: HRV and SpO₂ ──
+  function sampleOpts(
+    points: { time: string; value: number }[],
+    color: string,
+    unit: string,
+  ): Record<string, unknown> {
+    return {
+      ...baseOpts(),
+      grid: { left: 34, right: 8, top: 8, bottom: 20 },
+      tooltip: {
+        ...(baseOpts().tooltip as object),
+        trigger: 'axis',
+        formatter: (p: { name: string; value: number }[]) =>
+          `${p[0]?.name ?? ''}: ${p[0]?.value} ${unit}`,
+      },
+      xAxis: {
+        ...timeAxis(),
+        data: points.map((p) => fmtTime(p.time)),
+        boundaryGap: false,
+        axisLabel: { color: LABEL_COLOR, fontSize: 9, interval: Math.ceil(points.length / 6) },
+      },
+      yAxis: { ...valueAxis(), scale: true },
+      series: [
+        {
+          type: 'line',
+          data: points.map((p) => Math.round(p.value * 10) / 10),
+          symbol: 'circle',
+          symbolSize: 3,
+          showSymbol: points.length <= 60,
+          lineStyle: { color, width: 1.4, opacity: 0.85 },
+          itemStyle: { color },
+        },
+      ],
+    };
+  }
+
+  async function loadSamples(date: string): Promise<void> {
+    const [hrv, spo2] = await Promise.allSettled([
+      fetchJson<{ points: { time: string; value: number }[] }>(
+        `/api/samples?type=heart-rate-variability&date=${date}`,
+      ),
+      fetchJson<{ points: { time: string; value: number }[] }>(
+        `/api/samples?type=oxygen-saturation&date=${date}`,
+      ),
+    ]);
+    const hrvIntraPts = hrv.status === 'fulfilled' ? hrv.value.points ?? [] : [];
+    if (hrvIntraPts.length > 0) {
+      hrvIntraChart.setOption(sampleOpts(hrvIntraPts, GRAY_LT, 'ms'), true);
+      const vals = hrvIntraPts.map((p) => p.value);
+      setChartSummary(
+        $('#chart-hrv-intraday'),
+        `Heart rate variability samples: ${hrvIntraPts.length} readings, from ${fmt(Math.min(...vals))} to ${fmt(Math.max(...vals))} ms.`,
+      );
+    } else {
+      paintEmpty(hrvIntraChart);
+    }
+    const spo2Pts = spo2.status === 'fulfilled' ? spo2.value.points ?? [] : [];
+    if (spo2Pts.length > 0) {
+      spo2IntraChart.setOption(sampleOpts(spo2Pts, WHITE, '%'), true);
+      // Desaturation: samples below 92% + global minimum
+      const ds = desatStats(spo2Pts, 92);
+      const el = $('#spo2-desat')!;
+      el.hidden = false;
+      el.innerHTML =
+        ds.count > 0
+          ? `Desaturation < 92%: <b>${ds.count}</b> samples · min <b>${ds.min}%</b> at ${fmtTime(ds.minTime)}`
+          : `Desaturation < 92%: none · min ${ds.min}%`;
+      el.classList.toggle('warn', ds.count > 0);
+      setChartSummary(
+        $('#chart-spo2-intraday'),
+        `Oxygen saturation: ${spo2Pts.length} samples, minimum ${ds.min}%.`,
+      );
+    } else {
+      paintEmpty(spo2IntraChart);
+      $('#spo2-desat')!.hidden = true;
+    }
+  }
+
+  // ── Arrhythmia notifications ──
+  async function loadIrn(date: string): Promise<void> {
+    const el = $('#hr-irn')!;
+    try {
+      const resp = await fetchJson<ListResp>(
+        `/api/list?type=irregular-rhythm-notification&date=${date}`,
+      );
+      const n = resp.dataPoints?.length ?? 0;
+      el.hidden = n === 0;
+      if (n > 0) {
+        el.textContent = `Arrhythmia: notifications for the day — ${n}`;
+      }
+    } catch {
+      el.hidden = true;
+    }
+  }
+
+  // ── Readiness: HRV + resting HR for 14 days ──
+  async function loadReadiness(date: string): Promise<void> {
+    const el = $('#hr-readiness')!;
+    try {
+      const r = await fetchJson<ReadinessResp>(
+        `/api/analytics?mode=hrv_trend&days=14&endDate=${date}`,
+      );
+      const raw = (r.readiness ?? '').toUpperCase();
+      const level = raw.startsWith('HIGH') ? 'HIGH' : raw.startsWith('MOD') ? 'MODERATE' : 'LOW';
+      // Readiness is based on HRV (stats.computeReadiness: HIGH/MOD/LOW by HRV,
+      // RHR only refines HIGH). Without HRV the score is meaningless — server returns LOW at
+      // hrv.avg=0, which would be a false alarm; we hide the block until HRV arrives.
+      const hrvAvg = r.hrv?.avg ?? 0;
+      if (hrvAvg <= 0) {
+        el.hidden = true;
+        return;
+      }
+      el.hidden = false;
+      el.dataset.level = level;
+      $('#readiness-level')!.textContent = level;
+      $('#readiness-nums')!.textContent =
+        `HRV avg ${fmt(r.hrv?.avg ?? null, 1)} ms · RHR avg ${fmt(r.restingHr?.avg ?? null, 1)} bpm`;
+    } catch {
+      el.hidden = true;
+    }
+  }
+
+  // ── Toggles ──
+  $('#hr-mode')!.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest('button');
+    if (!btn || !btn.dataset.mode) return;
+    mode = btn.dataset.mode as HrMode;
+    $('#hr-mode')!.querySelectorAll('button').forEach((b) => {
+      const on = b === btn;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', String(on));
+    });
+    if (curDate) void loadHeartRate(curDate);
+  });
+
+  $('#hr-range')!.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest('button');
+    if (!btn) return;
+    days = Number(btn.dataset.days);
+    $('#hr-range')!.querySelectorAll('button').forEach((b) => {
+      const on = b === btn;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', String(on));
+    });
+    if (curDate) void loadTrends(curDate);
+  });
+
+  onDate((date) => {
+    curDate = date;
+    void loadHeartRate(date);
+    void loadSamples(date);
+    void loadTrends(date);
+    void loadIrn(date);
+    void loadReadiness(date);
+  });
+</script>
+
+<style>
+  .hr-title { color: var(--accent-text); }
+  .hr-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .hr-avg-wide { grid-column: 1 / -1; }
+  .hr-week-wrap { min-height: 34px; display: flex; align-items: center; }
+  .hr-week-wrap .vital-spark { width: 100%; max-width: 420px; height: 34px; }
+  .readiness-nums { color: var(--text-dim); }
+</style>

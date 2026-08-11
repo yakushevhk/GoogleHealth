@@ -1,0 +1,155 @@
+---
+/**
+ * Exercises: cards — type, name, time, duration,
+ * metrics (HR avg/max, kcal, distance). Section hides when no data.
+ */
+---
+
+<section class="panel card reveal b-exercise" style="--i:5" id="exercise-card" hidden>
+  <div class="card-head">
+    <span class="card-title" style="color:var(--green)">Exercises</span>
+    <span class="label" id="ex-count"></span>
+  </div>
+  <div class="ex-list" id="ex-list"></div>
+</section>
+
+<script>
+  import { durationSeconds, firstNumber, toNumber } from '@lib/extract';
+  import { localOffsetMin } from '@lib/filters';
+  import type { ExerciseSession } from '@lib/gh-types';
+  import { civilDateOf, heartRateRecovery } from '@lib/stats';
+  import { subscribeSummary } from '@lib/store';
+  import { $, esc, fetchJson, fmt, fmtDuration, fmtTime } from '@lib/ui';
+
+  // Letter codes for sport types in Nothing OS style (no emoji)
+  const ICONS: Record<string, string> = {
+    RUNNING: 'RUN',
+    TREADMILL_RUNNING: 'RUN',
+    WALKING: 'WLK',
+    CYCLING: 'CYC',
+    SWIMMING: 'SWM',
+    YOGA: 'YGA',
+    STRENGTH_TRAINING: 'STR',
+    HIKING: 'HIK',
+    ROWING: 'ROW',
+    ELLIPTICAL: 'ELP',
+    PILATES: 'PIL',
+    DANCING: 'DNC',
+    MARTIAL_ARTS: 'MMA',
+    SKIING: 'SKI',
+    BASKETBALL: 'BSK',
+    FOOTBALL: 'FTB',
+    TENNIS: 'TNS',
+  };
+
+  function metric(ex: ExerciseSession, path: string[]): number | null {
+    let cur: unknown = ex.metrics;
+    for (const key of path) {
+      if (!cur || typeof cur !== 'object') return null;
+      cur = (cur as Record<string, unknown>)[key];
+    }
+    return firstNumber(cur) ?? null;
+  }
+
+  /** Flat keys metricsSummary (Health Sync): distanceMillimeters etc. */
+  function flat(ex: ExerciseSession, key: string): number | null {
+    const m = ex.metrics as Record<string, unknown> | null;
+    return toNumber(m?.[key]) ?? null;
+  }
+
+  function cardHtml(ex: ExerciseSession): string {
+    const icon = ICONS[ex.type ?? ''] ?? 'WOD';
+    const sec = durationSeconds(ex.duration);
+    const hrAvg =
+      flat(ex, 'averageHeartRateBeatsPerMinute') ??
+      metric(ex, ['heartRate', 'beatsPerMinuteAvg']);
+    const hrMax =
+      flat(ex, 'maxHeartRateBeatsPerMinute') ??
+      metric(ex, ['heartRate', 'beatsPerMinuteMax']);
+    const kcal =
+      flat(ex, 'caloriesKcal') ??
+      metric(ex, ['activeEnergyBurned', 'kcalSum']) ??
+      null;
+    const distMm =
+      flat(ex, 'distanceMillimeters') ?? metric(ex, ['distance', 'millimetersSum']);
+    const distKm = distMm !== null ? distMm / 1_000_000 : null;
+
+    const metrics: string[] = [];
+    if (hrAvg !== null) {
+      metrics.push(`<span>HR <b>${fmt(hrAvg)}</b>${hrMax !== null ? `/${fmt(hrMax)}` : ''}</span>`);
+    }
+    if (kcal !== null) metrics.push(`<span><b>${fmt(kcal)}</b> kcal</span>`);
+    if (distKm !== null && distKm >= 0.1) metrics.push(`<span><b>${fmt(distKm, 2)}</b> km</span>`);
+    // TCX export: /api/tcx?id=... (point id from summary, validated by route)
+    if (ex.id) {
+      metrics.push(
+        `<a class="tcx-link" href="/api/tcx?id=${encodeURIComponent(ex.id)}" download="exercise_${esc(ex.id)}.tcx" title="Download TCX track">TCX ↓</a>`,
+      );
+    }
+
+    return `
+      <div class="ex-card">
+        <div class="ex-icon">${icon}</div>
+        <div>
+          <div class="ex-name">${esc(ex.name || ex.type || 'Exercise')}</div>
+          <div class="ex-time">${fmtTime(ex.start)} — ${fmtTime(ex.end)} · ${fmtDuration(sec)}</div>
+        </div>
+        <div class="ex-metrics">${metrics.join('')}</div>
+      </div>`;
+  }
+
+  subscribeSummary((s) => {
+    const card = $('#exercise-card')!;
+    const exercises = s?.exercise ?? [];
+    card.hidden = exercises.length === 0;
+    if (exercises.length === 0) return;
+    $('#ex-count')!.textContent = `${exercises.length} for the day`;
+    $('#ex-list')!.innerHTML = exercises.map(cardHtml).join('');
+    void enrichRecovery(exercises);
+  });
+
+  /**
+   * Heart rate recovery: first 5 min after exercise end vs
+   * next 5 min (intraday HR, 300 s windows). Appended to cards.
+   */
+  const hrCache = new Map<string, Promise<{ time: string; avg?: number }[]>>();
+  function hrPoints(date: string): Promise<{ time: string; avg?: number }[]> {
+    let p = hrCache.get(date);
+    if (!p) {
+      p = fetchJson<{ points: { time: string; avg?: number }[] }>(
+        `/api/intraday?type=heart-rate&date=${date}&window=300s&offsetMin=${localOffsetMin()}`,
+      )
+        .then((r) => r.points)
+        .catch(() => [] as { time: string; avg?: number }[]);
+      hrCache.set(date, p);
+    }
+    return p;
+  }
+
+  async function enrichRecovery(exercises: ExerciseSession[]): Promise<void> {
+    const cards = document.querySelectorAll<HTMLElement>('.ex-card');
+    await Promise.all(
+      exercises.map(async (ex, i) => {
+        // Each session is enriched independently: a broken intraday response or
+        // bad ex.end of one exercise must not break Promise.all for all.
+        try {
+          if (!ex.end) return;
+          // Civil end date: intraday windows are aligned to local day
+          // (offsetMin), UTC date slice(0,10) for 00:00–03:00 local time gives wrong day.
+          const d = civilDateOf(ex.end, localOffsetMin()) ?? ex.end.slice(0, 10);
+          const pts = await hrPoints(d);
+          const hrr = heartRateRecovery(pts, ex.end);
+          const metricsEl = cards[i]?.querySelector('.ex-metrics');
+          if (hrr && metricsEl) {
+            const span = document.createElement('span');
+            span.className = 'hrr';
+            span.innerHTML = `rec. <b>${hrr.drop > 0 ? '−' : '+'}${fmt(Math.abs(hrr.drop))}</b> bpm`;
+            metricsEl.appendChild(span);
+          }
+        } catch {
+          /* skip one session — not the whole card */
+        }
+      }),
+    );
+  }
+</script>

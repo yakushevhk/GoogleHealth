@@ -1,0 +1,316 @@
+---
+import '@fontsource-variable/doto/full.css';
+import '@fontsource/ibm-plex-mono/400.css';
+import '@fontsource/ibm-plex-mono/500.css';
+import '@fontsource/ibm-plex-sans/400.css';
+import '@fontsource/ibm-plex-sans/500.css';
+import '@fontsource/ibm-plex-mono/600.css';
+import '../styles/global.css';
+
+import TopBar from '../components/TopBar.astro';
+import DevicesFooter from '../components/DevicesFooter.astro';
+import { LISTABLE_TYPES } from '@lib/gh-types';
+
+// Only listable types: rollup-only (floors, total-calories,
+// calories-in-heart-rate-zone) /api/list always rejects with 400 —
+// previously they hung in the list as perpetually errored options.
+const DATA_TYPES: string[] = [...LISTABLE_TYPES];
+---
+
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Google Health — RAW Inspector</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='34' fill='%23d71921'/%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <TopBar page="inspector" />
+    <main class="wrap">
+      <div class="header-section">
+        <h2>RAW Inspector</h2>
+        <p class="dim">View and delete data points for all 39 data types in Google Health API.</p>
+      </div>
+
+      <div class="controls-panel panel">
+        <div class="field">
+          <label for="type-select">Data Type:</label>
+          <select id="type-select">
+            {DATA_TYPES.map(t => <option value={t}>{t}</option>)}
+          </select>
+        </div>
+        <div class="field">
+          <label for="date-filter">Date filter (optional):</label>
+          <input type="date" id="date-filter" />
+        </div>
+        <button id="fetch-btn" class="fetch-btn">Load data points</button>
+      </div>
+
+      <div id="results-container" class="panel results-panel">
+        <div class="results-header">
+          <h3>Data points (<span id="count-label">0</span>)</h3>
+          <span id="loading-spinner" class="dim" hidden>Loading...</span>
+        </div>
+        <div id="points-list" class="points-list">
+          <p class="dim empty-msg">Select a data type and click "Load data points"</p>
+        </div>
+      </div>
+
+      <DevicesFooter />
+    </main>
+
+    <script>
+      import { esc } from '@lib/ui';
+
+      const typeSelect = document.getElementById('type-select') as HTMLSelectElement;
+      const dateFilter = document.getElementById('date-filter') as HTMLInputElement;
+      const fetchBtn = document.getElementById('fetch-btn') as HTMLButtonElement;
+      const pointsList = document.getElementById('points-list') as HTMLDivElement;
+      const countLabel = document.getElementById('count-label') as HTMLSpanElement;
+      const spinner = document.getElementById('loading-spinner') as HTMLSpanElement;
+
+      // Data points come from Google and may contain arbitrary strings —
+      // we escape before innerHTML insertion (stored XSS). esc() is shared, from @lib/ui.
+
+      async function loadPoints() {
+        const type = typeSelect.value;
+        const date = dateFilter.value;
+        if (!type) return;
+
+        spinner.hidden = false;
+        pointsList.innerHTML = '';
+        countLabel.textContent = '0';
+
+        try {
+          let url = `/api/list?type=${type}&pageSize=100`;
+          if (date) {
+            url += `&date=${date}`;
+          }
+          const resp = await fetch(url);
+          const data = await resp.json();
+          if (!resp.ok) {
+            pointsList.innerHTML = `<p class="error-msg">Error: ${esc(data.error || resp.status)}</p>`;
+            return;
+          }
+          const points = data.dataPoints || [];
+          countLabel.textContent = String(points.length);
+
+          if (points.length === 0) {
+            pointsList.innerHTML = '<p class="dim empty-msg">No data points found for this type.</p>';
+            return;
+          }
+
+          points.forEach((p: any) => {
+            const row = document.createElement('div');
+            row.className = 'point-card panel';
+            const nameParts = (p.name || '').split('/');
+            const pointId = nameParts[nameParts.length - 1] || p.name;
+
+            row.innerHTML = `
+              <div class="point-header">
+                <div>
+                  <span class="point-id mono">${esc(pointId)}</span>
+                  <span class="point-type-badge">${esc(type)}</span>
+                </div>
+                <button class="delete-btn" data-id="${esc(pointId)}" data-type="${esc(type)}">DEL</button>
+              </div>
+              <pre class="point-json mono">${esc(JSON.stringify(p, null, 2))}</pre>
+            `;
+
+            const delBtn = row.querySelector('.delete-btn') as HTMLButtonElement;
+            delBtn.addEventListener('click', async () => {
+              if (!confirm(`Delete data point ${pointId}?`)) return;
+              delBtn.disabled = true;
+              delBtn.textContent = 'Deleting...';
+              try {
+                const delResp = await fetch('/api/delete', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ dataType: type, dataPointId: pointId })
+                });
+                const delRes = await delResp.json();
+                if (delRes.success) {
+                  row.remove();
+                  const current = Number(countLabel.textContent || '1');
+                  countLabel.textContent = String(Math.max(0, current - 1));
+                } else {
+                  alert(`Deletion error: ${delRes.error || 'Unknown error'}`);
+                  delBtn.disabled = false;
+                  delBtn.textContent = 'DEL';
+                }
+              } catch (e: any) {
+                alert(`Error: ${e.message}`);
+                delBtn.disabled = false;
+                delBtn.textContent = 'DEL';
+              }
+            });
+
+            pointsList.appendChild(row);
+          });
+        } catch (e: any) {
+          pointsList.innerHTML = `<p class="error-msg">Loading error: ${esc(e.message)}</p>`;
+        } finally {
+          spinner.hidden = true;
+        }
+      }
+
+      fetchBtn.addEventListener('click', loadPoints);
+    </script>
+
+    <style>
+      .header-section {
+        margin-bottom: 24px;
+      }
+      .header-section h2 {
+        font-family: var(--font-mono);
+        font-size: 14px;
+        font-weight: 500;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        margin: 0 0 6px;
+      }
+
+      .controls-panel {
+        display: flex;
+        align-items: flex-end;
+        gap: 16px;
+        padding: 20px;
+        border-radius: 2px;
+        margin-bottom: 24px;
+        flex-wrap: wrap;
+      }
+
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--text-dim);
+      }
+
+      select, input[type="date"] {
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        color: var(--text);
+        padding: 8px 12px;
+        border-radius: 2px;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        min-width: 220px;
+      }
+
+      .fetch-btn {
+        background: var(--text);
+        color: #000;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        border: none;
+        padding: 10px 18px;
+        border-radius: 2px;
+        cursor: pointer;
+        transition: opacity 0.15s ease;
+      }
+      .fetch-btn:hover { opacity: 0.85; }
+      .fetch-btn:active { opacity: 0.7; }
+
+      .results-panel {
+        padding: 20px;
+        border-radius: 2px;
+        margin-bottom: 40px;
+      }
+      .results-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 16px;
+      }
+      .results-header h3 {
+        margin: 0;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .points-list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .point-card {
+        padding: 16px;
+        border-radius: 2px;
+        background: var(--panel-2);
+      }
+      .point-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .point-id {
+        font-size: 12px;
+        color: var(--text-dim);
+        margin-right: 8px;
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+      .point-type-badge {
+        background: transparent;
+        border: 1px solid var(--border-hover);
+        padding: 2px 8px;
+        border-radius: 2px;
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        color: var(--text);
+      }
+
+      .delete-btn {
+        color: var(--accent-text);
+        border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+        padding: 4px 10px;
+        font-size: 10px;
+        letter-spacing: 0.12em;
+        cursor: pointer;
+        background: transparent;
+        border-radius: 2px;
+      }
+      .delete-btn:hover {
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
+        color: var(--accent-text);
+      }
+
+      .point-json {
+        background: var(--bg);
+        border: 1px solid var(--border);
+        padding: 12px;
+        border-radius: 2px;
+        font-size: 11px;
+        overflow-x: auto;
+        margin: 0;
+        max-height: 240px;
+      }
+
+      .empty-msg, .error-msg {
+        margin: 20px 0;
+        text-align: center;
+      }
+      .error-msg { color: var(--accent-text); }
+    </style>
+  </body>
+</html>

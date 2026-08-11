@@ -1,0 +1,375 @@
+---
+/**
+ * Sleep: hypnogram (step-line: awake/REM/light/deep),
+ * phase duration bars with percentages, sleep temperature (deviation from baseline),
+ * respiratory rate during sleep.
+ */
+---
+
+<section class="panel card reveal b-sleep" style="--i:3" id="sleep-card">
+  <div class="card-head">
+    <span class="card-title" style="color:var(--violet)">Sleep</span>
+    <span class="sleep-range" id="slp-range"></span>
+  </div>
+  <div id="slp-body">
+    <span class="skel" style="height:14px;width:60%;margin-bottom:10px"></span>
+    <span class="skel" style="height:14px;width:40%"></span>
+  </div>
+</section>
+
+<script>
+  import { AXIS_COLOR, GRAY_LT, LABEL_COLOR, RED, baseOpts, initChart, timeAxis, valueAxis } from '@lib/charts';
+  import { durationSeconds, toNumber } from '@lib/extract';
+  import { addDays, localOffsetMin } from '@lib/filters';
+  import { civilDateOf, stagePercentages } from '@lib/stats';
+  import type { DaySummary, SleepSession } from '@lib/gh-types';
+  import { loadSummary, subscribeSummary } from '@lib/store';
+  import { $, fetchJson, fmt, fmtDuration, fmtTime, getDate, setChartSummary, showError } from '@lib/ui';
+
+  const body = $('#slp-body')!;
+  let chart: ReturnType<typeof initChart> | null = null;
+  let nightChart: ReturnType<typeof initChart> | null = null;
+
+  // Stage categories: AWAKE/OUT_OF_BED → awake, REM, LIGHT/SLEEP → light, DEEP
+  const STAGE_CAT: Record<string, number> = {
+    AWAKE: 0, OUT_OF_BED: 0, REM: 1, LIGHT: 2, SLEEP: 2, DEEP: 3,
+  };
+  const CAT_NAMES = ['Awake', 'REM', 'Light', 'Deep'];
+  const CAT_CLS = ['ph-awake', 'ph-rem', 'ph-light', 'ph-deep'];
+  // Nothing gray scale: sleep depth — deeper tone
+  interface Stage {
+    type?: string;
+    startTime?: string;
+    endTime?: string;
+    duration?: string;
+  }
+
+  function pickSession(sleeps: SleepSession[]): SleepSession | undefined {
+    // Preferably session with stages, otherwise the longest
+    const withStages = sleeps.filter((s) => Array.isArray(s.stages) && (s.stages as Stage[]).length > 0);
+    const pool = withStages.length > 0 ? withStages : sleeps;
+    return pool
+      .slice()
+      .sort((a, b) => dur(b) - dur(a))[0];
+  }
+
+  function dur(s: SleepSession): number {
+    if (!s.start || !s.end) return 0;
+    return (new Date(s.end).getTime() - new Date(s.start).getTime()) / 1000;
+  }
+
+  /** "7 h 12 min": digits in Doto, units in mono (Doto doesn't contain Cyrillic). */
+  function dotDuration(sec: number | null): string {
+    if (sec === null) return '<span class="faint">—</span>';
+    // First round to whole minutes, then split: otherwise 3599 s → "60 min".
+    const totalMin = Math.round(sec / 60);
+    const h = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
+    const u = (t: string) => `<span class="sleep-unit">${t}</span>`;
+    return h > 0 ? `${h}${u(' h ')}${m}${u(' min')}` : `${m}${u(' min')}`;
+  }
+
+  function render(s: DaySummary | null): void {
+    // DOM is recreated every render (including auto-refresh every 60 s) —
+    // without dispose old ECharts instances and their ResizeObserver leak (as in
+    // BodyCard before the fix).
+    chart?.dispose();
+    chart = null;
+    nightChart?.dispose();
+    nightChart = null;
+
+    const sleeps = s?.sleep ?? [];
+    if (sleeps.length === 0) {
+      body.innerHTML = '<div class="empty-note">Sleep for this day is not recorded</div>';
+      $('#slp-range')!.textContent = '';
+      return;
+    }
+
+    const session = pickSession(sleeps)!;
+    const stages = (session.stages ?? []) as Stage[];
+    const totalSec = dur(session);
+
+    body.innerHTML = `
+      <div class="sleep-head">
+        <span class="sleep-total" id="slp-total"></span>
+        <span class="sleep-range">${fmtTime(session.start)} — ${fmtTime(session.end)}</span>
+      </div>
+      <div class="chart chart-hypno" id="chart-hypno" role="img" aria-label="Hypnogram: sleep stages for the night">
+        <span class="chart-sr visually-hidden">Sleep: duration ${fmtDuration(totalSec)}.</span>
+      </div>
+      <div class="chart chart-sleep-hr" id="chart-sleep-hr" role="img" aria-label="Heart rate during sleep" hidden>
+        <span class="chart-sr visually-hidden">No heart rate data for this sleep session.</span>
+      </div>
+      <div class="phase-bars" id="slp-phases"></div>
+      <div class="sleep-extras" id="slp-extras"></div>`;
+
+    {
+      // .empty enables the built-in global.css rule: empty dash is drawn
+      // monospaced, not in Doto (it doesn't have the em-dash glyph).
+      const totalEl = $('#slp-total')!;
+      const hasTotal = totalSec > 0;
+      totalEl.classList.toggle('empty', !hasTotal);
+      totalEl.innerHTML = dotDuration(hasTotal ? totalSec : null);
+    }
+
+    // ── Hypnogram ──
+    if (stages.length > 0) {
+      const hypnoEl = $('#chart-hypno')!;
+      chart = initChart(hypnoEl);
+      // On narrow screens long phase labels eat chart space —
+      // we narrow the left margin and use abbreviated names.
+      const narrow = hypnoEl.clientWidth > 0 && hypnoEl.clientWidth < 420;
+      const catNames = narrow ? ['Awake', 'REM', 'Light', 'Deep'] : CAT_NAMES;
+      const data: [string, number][] = [];
+      for (const st of stages) {
+        const cat = STAGE_CAT[st.type ?? ''] ?? 2;
+        if (st.startTime) data.push([fmtTime(st.startTime), cat]);
+        if (st.endTime) data.push([fmtTime(st.endTime), cat]);
+      }
+      chart.setOption({
+        ...baseOpts(),
+        grid: { left: narrow ? 60 : 108, right: 12, top: 8, bottom: 22 },
+        tooltip: {
+          ...(baseOpts().tooltip as object),
+          trigger: 'axis',
+          formatter: (p: { name: string; value: [string, number] }[]) =>
+            `${p[0]?.name ?? ''} — ${CAT_NAMES[p[0]?.value[1] as number] ?? ''}`,
+        },
+        xAxis: { ...timeAxis(), boundaryGap: false },
+        yAxis: {
+          type: 'category',
+          data: catNames,
+          inverse: true,
+          axisLine: { lineStyle: { color: AXIS_COLOR } },
+          axisTick: { show: false },
+          axisLabel: { color: LABEL_COLOR, fontSize: 10 },
+          splitLine: { show: false },
+        },
+        series: [
+          {
+            type: 'line',
+            data,
+            step: 'start',
+            symbol: 'none',
+            lineStyle: { color: GRAY_LT, width: 1.8 },
+            areaStyle: { color: GRAY_LT, opacity: 0.08 },
+          },
+        ],
+      }, true);
+    }
+
+    // ── Phase bars ──
+    const totals = [0, 0, 0, 0];
+    for (const st of stages) {
+      const cat = STAGE_CAT[st.type ?? ''] ?? 2;
+      const sec =
+        durationSeconds(st.duration) ??
+        (st.startTime && st.endTime
+          ? (new Date(st.endTime).getTime() - new Date(st.startTime).getTime()) / 1000
+          : 0);
+      totals[cat] += sec;
+    }
+    const staged = totals.reduce((a, b) => a + b, 0);
+    if (staged > 0) {
+      $('#slp-phases')!.innerHTML = totals
+        .map((sec, i) => {
+          const pct = (sec / staged) * 100;
+          return `
+            <div class="phase-row">
+              <span>${CAT_NAMES[i]}</span>
+              <div class="phase-track"><div class="phase-fill ${CAT_CLS[i]}" style="width:${pct}%"></div></div>
+              <span>${fmtDuration(sec)} · ${fmt(pct)}%</span>
+            </div>`;
+        })
+        .join('');
+    }
+
+    // ── Sleep efficiency & Deep+REM ratio ──
+    const metricsEl = document.createElement('div');
+    metricsEl.className = 'sleep-metrics';
+
+    // Sleep efficiency: (totalSec - awake) / totalSec * 100
+    if (totalSec > 0 && staged > 0) {
+      const asleepSec = totalSec - totals[0];
+      const effPct = Math.round((asleepSec / totalSec) * 1000) / 10;
+      // --accent-text instead of --red: dark red on black doesn't reach
+      // WCAG AA (4.05:1), and here it's small text 10–14px.
+      let effColor = 'var(--accent-text)';
+      let effLabel = 'Low';
+      if (effPct >= 90) { effColor = 'var(--green)'; effLabel = 'Excellent'; }
+      else if (effPct >= 80) { effColor = 'var(--amber)'; effLabel = 'Good'; }
+      metricsEl.innerHTML += `<div class="metric-badge"><span class="metric-label">Sleep efficiency</span><span class="metric-value" style="color:${effColor}">${fmt(effPct)}%</span><span class="metric-tag" style="background:${effColor}">${effLabel}</span></div>`;
+    }
+
+    // Deep + REM ratio
+    if (staged > 0) {
+      const deepRemSec = totals[3] + totals[1]; // deep + REM
+      const drPct = Math.round((deepRemSec / staged) * 1000) / 10;
+      let drColor = 'var(--green)';
+      let drLabel = 'Normal';
+      if (drPct < 15 || drPct > 45) { drColor = 'var(--accent-text)'; drLabel = 'Out of range'; }
+      else if (drPct < 20 || drPct > 40) { drColor = 'var(--amber)'; drLabel = 'Borderline'; }
+      metricsEl.innerHTML += `<div class="metric-badge"><span class="metric-label">Deep + REM</span><span class="metric-value" style="color:${drColor}">${fmt(drPct)}%</span><span class="metric-tag" style="background:${drColor}">${drLabel}</span><span class="metric-range faint">normal 20–40%</span></div>`;
+    }
+
+    if (metricsEl.innerHTML) {
+      $('#slp-phases')!.after(metricsEl);
+    }
+
+    // ── Stage breakdown via stagePercentages ──
+    const stagesSummary = session.summary?.stagesSummary;
+    if (stagesSummary && stagesSummary.length > 0) {
+      const pcts = stagePercentages(stagesSummary as unknown[]);
+      const stageKeys = ['AWAKE', 'LIGHT', 'DEEP', 'REM'];
+      const stageLabels: Record<string, string> = { AWAKE: 'Awake', LIGHT: 'Light', DEEP: 'Deep', REM: 'REM' };
+      // Same values as .ph-* bars in global.css (via CSS variables),
+      // otherwise legend and bar of the same stage looked like different shades.
+      const stageColors: Record<string, string> = {
+        AWAKE: 'var(--text-faint)',
+        LIGHT: 'color-mix(in srgb, var(--violet) 55%, var(--panel-2))',
+        DEEP: 'var(--sky)',
+        REM: 'var(--violet)',
+      };
+      const badges = stageKeys
+        .filter((k) => pcts[k])
+        .map((k) => `<span class="stage-pct" style="border-color:${stageColors[k]}"><i style="background:${stageColors[k]}"></i>${stageLabels[k]}: <b>${fmt(pcts[k].percent)}%</b> <span class="faint">(${fmt(pcts[k].minutes)} min)</span></span>`)
+        .join('');
+      if (badges) {
+        const stageEl = document.createElement('div');
+        stageEl.className = 'stage-pcts';
+        stageEl.innerHTML = badges;
+        // metricsEl might not be in DOM (when no metrics) — .after() on
+        // a disconnected node silently does nothing; anchor — always in DOM.
+        (metricsEl.isConnected ? metricsEl : $('#slp-phases')!).after(stageEl);
+      }
+    }
+
+    // ── Sleep temperature (deviation from baseline) and respiration ──
+    // firstNumber can't be used here: field starts with a date object → would return year.
+    const st = s?.sleep_temperature as Record<string, unknown> | undefined;
+    const nightly = toNumber(st?.nightlyTemperatureCelsius);
+    const baseline = toNumber(st?.baselineTemperatureCelsius);
+    const tempDev =
+      nightly !== undefined && baseline !== undefined ? nightly - baseline : undefined;
+    const rrs = s?.respiratory_rate_sleep as Record<string, unknown> | undefined;
+    const respRate = toNumber(
+      (rrs?.fullSleepStats as Record<string, unknown> | undefined)?.breathsPerMinute,
+    );
+    const extras: string[] = [];
+    extras.push('<span id="slp-night-hr" class="faint">HR during sleep: …</span>');
+    if (tempDev !== undefined) {
+      extras.push(`<span>Sleep temp: <b>${tempDev >= 0 ? '+' : ''}${fmt(tempDev, 1)} °C</b> from baseline</span>`);
+    }
+    if (respRate !== undefined) {
+      extras.push(`<span>Sleep respiration: <b>${fmt(respRate, 1)}</b> breaths/min</span>`);
+    }
+    $('#slp-extras')!.innerHTML = extras.join('');
+    void loadNightHr(session);
+  }
+
+  /**
+   * Sleep HR — derived metric: intraday HR (5-min windows)
+   * for the sleep end day and previous day, windows within [start, end]
+   * of the session. Drawn as a line under hypnogram + average/minimum in line.
+   */
+  async function loadNightHr(session: SleepSession): Promise<void> {
+    const el = $('#slp-night-hr');
+    const chartEl = $('#chart-sleep-hr');
+    if (!el || !session.start || !session.end) {
+      el?.remove();
+      return;
+    }
+    try {
+      const sMs = new Date(session.start).getTime();
+      const eMs = new Date(session.end).getTime();
+      // Civil dates with timezone: intraday windows are aligned to
+      // local day (offsetMin), so for sleep ending at 01:00 local time we need
+      // the previous UTC day — shift via civilDateOf, not slice(0,10).
+      const off = localOffsetMin();
+      const endCivil = civilDateOf(session.end, off) ?? session.end.slice(0, 10);
+      const dates = [...new Set([addDays(endCivil, -1), endCivil])];
+      const responses = await Promise.all(
+        dates.map((dt) =>
+          fetchJson<{ points: { time: string; avg?: number }[] }>(
+            `/api/intraday?type=heart-rate&date=${dt}&window=300s&offsetMin=${off}`,
+          ).catch(() => ({ points: [] as { time: string; avg?: number }[] })),
+        ),
+      );
+      // Auto-refresh every 60 s recreates DOM: don't draw on dead elements
+      // (otherwise initChart on a disconnected node leaks ECharts instance).
+      if (!el.isConnected) return;
+      const pts = responses
+        .flatMap((r) => r.points)
+        .filter((p) => {
+          const t = new Date(p.time).getTime();
+          return p.avg !== undefined && t >= sMs && t <= eMs;
+        })
+        .sort((a, b) => a.time.localeCompare(b.time)) as { time: string; avg: number }[];
+      if (pts.length === 0) {
+        el.remove();
+        return;
+      }
+      const vals = pts.map((p) => p.avg);
+      const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+      const min = Math.min(...vals);
+      el.outerHTML = `<span>Sleep HR: <b>${fmt(avg)}</b> bpm <span class="faint">(min ${fmt(min)})</span></span>`;
+      setChartSummary(
+        chartEl,
+        `Heart rate during sleep: average ${fmt(avg)} bpm, minimum ${fmt(min)}.`,
+      );
+
+      // ── HR line under hypnogram ──
+      if (chartEl && chartEl.isConnected && pts.length >= 2) {
+        chartEl.hidden = false;
+        nightChart = initChart(chartEl);
+        nightChart.setOption({
+          ...baseOpts(),
+          grid: { left: 36, right: 12, top: 8, bottom: 20 },
+          tooltip: {
+            ...(baseOpts().tooltip as object),
+            trigger: 'axis',
+            formatter: (p: { name: string; value: number }[]) =>
+              `${p[0]?.name ?? ''}: ${p[0]?.value} bpm`,
+          },
+          xAxis: {
+            ...timeAxis(),
+            data: pts.map((p) => fmtTime(p.time)),
+            boundaryGap: false,
+            axisLabel: { color: LABEL_COLOR, fontSize: 9, interval: Math.ceil(pts.length / 8) },
+          },
+          yAxis: { ...valueAxis(), scale: true },
+          series: [
+            {
+              type: 'line',
+              data: vals.map((v) => Math.round(v * 10) / 10),
+              symbol: 'none',
+              lineStyle: { color: RED, width: 1.5 },
+              itemStyle: { color: RED },
+              areaStyle: { color: RED, opacity: 0.06 },
+            },
+          ],
+        }, true);
+      }
+    } catch {
+      el.remove();
+    }
+  }
+
+  let errored = false;
+  subscribeSummary((s, _prev, err) => {
+    if (err && !s) {
+      // showError replaces the card DOM — ECharts instances and their
+      // ResizeObserver without dispose would leak until recovery.
+      chart?.dispose();
+      chart = null;
+      nightChart?.dispose();
+      nightChart = null;
+      // Retry without reload: reload resets the selected day.
+      if (!errored) showError(body, err, () => void loadSummary(getDate()));
+      errored = true;
+      return;
+    }
+    errored = false;
+    render(s);
+  });
+</script>

@@ -1,0 +1,34 @@
+/target
+/astrojs/dist
+/astrojs/.astro
+/astrojs/node_modules
+/ts/node_modules
+/node_modules
+.DS_Store
+*.log
+.zcode/
+/go/googlehealth-mcp-go
+/bench/results.txt
+/zig/.zig-cache
+/zig/zig-out
+__pycache__/
+*.egg-info/
+*.pyc
+/c/google-health-mcp
+/c/*.o
+
+# Secrets and credentials
+.env
+health_token.json
+raw_api_responses.json
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.bak
+
+# MCP plugin temp files
+.playwright-mcp/

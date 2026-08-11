@@ -1,0 +1,284 @@
+---
+/**
+ * Activity: step progress ring (goal 10,000), calories, distance,
+ * floors, active minutes, HR zones, sedentary.
+ *
+ * HR zones: priority — exact rollup time_in_heart_rate_zone; if absent
+ * (almost always), derived from intraday HR and zone boundaries
+ * daily_heart_rate_zones (average HR per hour → 60 min in zone).
+ */
+---
+
+<section class="panel card reveal b-activity" style="--i:1" id="activity-card">
+  <div class="card-head">
+    <span class="card-title" style="color:var(--green)">Activity</span>
+  </div>
+  <div id="act-body">
+    <span class="skel" style="height:14px;width:70%;margin-bottom:10px"></span>
+    <span class="skel" style="height:14px;width:50%"></span>
+  </div>
+</section>
+
+<script>
+  import { durationSeconds, extractAggregates, extractZones, toNumber, totalOf } from '@lib/extract';
+  import { localOffsetMin, todayLocal } from '@lib/filters';
+  import type { DaySummary } from '@lib/gh-types';
+  import { loadSummary, subscribeSummary } from '@lib/store';
+  import { $, countUp, esc, fetchJson, fmt, fmtDuration, getDate, onDate, showError } from '@lib/ui';
+
+  const GOAL = 10_000;
+  const body = $('#act-body')!;
+  let curDate = '';
+  // Render generation: intraday zone/level fetches are async, and on fast
+  // date switching a slow old-day response can redraw the new DOM.
+  let renderGen = 0;
+
+  function template(): string {
+    return `
+      <div class="activity-grid">
+        <div class="ring-wrap">
+          <svg viewBox="0 0 168 168">
+            <circle class="ring-bg" cx="84" cy="84" r="72"></circle>
+            <circle class="ring-fg" id="act-ring" cx="84" cy="84" r="72"
+              stroke-dasharray="${2 * Math.PI * 72}" stroke-dashoffset="${2 * Math.PI * 72}"></circle>
+          </svg>
+          <div class="ring-center">
+            <div class="ring-num" id="act-steps">0</div>
+            <div class="ring-goal">steps · goal ${fmt(GOAL)}</div>
+          </div>
+        </div>
+        <div class="stat-grid">
+          <div class="stat-item">
+            <span class="label">Active calories</span>
+            <span class="stat-val" id="act-kcal">—</span> <small>kcal</small>
+          </div>
+          <div class="stat-item">
+            <span class="label">Total calories</span>
+            <span class="stat-val" id="act-kcal-total">—</span> <small>kcal</small>
+          </div>
+          <div class="stat-item">
+            <span class="label">Distance</span>
+            <span class="stat-val" id="act-dist">—</span> <small>km</small>
+          </div>
+          <div class="stat-item">
+            <span class="label">Floors</span>
+            <span class="stat-val" id="act-floors">—</span>
+          </div>
+          <div class="stat-item">
+            <span class="label">Active minutes</span>
+            <span class="stat-val" id="act-min">—</span> <small>min</small>
+          </div>
+          <div class="stat-item">
+            <span class="label">Sedentary</span>
+            <span class="stat-val" id="act-sed">—</span> <small>min</small>
+          </div>
+        </div>
+      </div>
+      <div id="act-zones-wrap" hidden>
+        <span class="label" style="display:block;margin:12px 0 6px">HR Zones <span class="faint" id="act-zones-src"></span></span>
+        <div class="zones-bar" id="act-zones"></div>
+        <div class="zones-legend" id="act-zones-legend" style="margin-top:6px"></div>
+      </div>
+      <div id="act-levels-wrap" hidden>
+        <span class="label" style="display:block;margin:12px 0 6px">Activity levels</span>
+        <div class="zones-bar" id="act-levels"></div>
+        <div class="zones-legend" id="act-levels-legend" style="margin-top:6px"></div>
+      </div>
+      <div class="sedentary-warn" id="act-warn" hidden></div>`;
+  }
+
+  // ── HR Zones ──
+  interface ZoneBound { type: string; min: number; max: number }
+
+  const ZONE_UI: Record<string, { cls: string; name: string }> = {
+    // boundaries from daily_heart_rate_zones (Fitbit)
+    LIGHT: { cls: 'zone-light', name: 'Light' },
+    MODERATE: { cls: 'zone-moderate', name: 'Moderate' },
+    VIGOROUS: { cls: 'zone-vigorous', name: 'Vigorous' },
+    PEAK: { cls: 'zone-peak', name: 'Peak' },
+    // exact rollup time_in_heart_rate_zone
+    FAT_BURN: { cls: 'zone-fatburn', name: 'Fat Burn' },
+    CARDIO: { cls: 'zone-cardio', name: 'Cardio' },
+    OUT_OF_ZONE: { cls: 'zone-out', name: 'Out of Zone' },
+  };
+
+  function zoneBounds(s: DaySummary): ZoneBound[] {
+    // summary already stores dailyHeartRateZones — extra hop broke reading
+    const zones = (s.daily_heart_rate_zones as Record<string, unknown> | undefined)
+      ?.heartRateZones as Record<string, unknown>[] | undefined;
+    if (!Array.isArray(zones)) return [];
+    return zones
+      .map((z) => ({
+        type: String(z.heartRateZoneType ?? ''),
+        min: toNumber(z.minBeatsPerMinute) ?? 0,
+        max: toNumber(z.maxBeatsPerMinute) ?? 999,
+      }))
+      .filter((z) => z.type);
+  }
+
+  function paintZones(entries: [string, number][], src: string): void {
+    if (entries.length === 0) {
+      $('#act-zones-wrap')!.hidden = true;
+      return;
+    }
+    $('#act-zones-wrap')!.hidden = false;
+    $('#act-zones-src')!.textContent = src;
+    const total = entries.reduce((acc, [, v]) => acc + v, 0) || 1;
+    $('#act-zones')!.innerHTML = entries
+      .map(([z, v]) => `<div class="${ZONE_UI[z]?.cls ?? 'zone-out'}" style="width:${(v / total) * 100}%"></div>`)
+      .join('');
+    $('#act-zones-legend')!.innerHTML = entries
+      .map(([z, v]) => {
+        const ui = ZONE_UI[z] ?? { cls: 'zone-out', name: z };
+        return `<span><i class="${ui.cls}"></i>${esc(ui.name)}: ${fmt(v)} min</span>`;
+      })
+      .join('');
+  }
+
+  async function updateZones(s: DaySummary, date: string, gen: number): Promise<void> {
+    // 1) exact rollup
+    const exact = Object.entries(extractZones(s.time_in_heart_rate_zone));
+    if (exact.length > 0) {
+      paintZones(exact, '');
+      return;
+    }
+    // 2) derived: intraday HR × zone boundaries
+    const bounds = zoneBounds(s);
+    if (bounds.length === 0) {
+      paintZones([], '');
+      return;
+    }
+    try {
+      const resp = await fetchJson<{ points: { time?: string; avg?: number }[] }>(
+        `/api/intraday?type=heart-rate&date=${date}&window=3600s&offsetMin=${localOffsetMin()}`,
+      );
+      if (gen !== renderGen) return; // day already switched — don't draw outdated
+      const isToday = date === todayLocal();
+      const nowMs = Date.now();
+      const minutes: Record<string, number> = {};
+      for (const p of resp.points) {
+        if (p.avg === undefined) continue;
+        // Incomplete current hour: we account for actually elapsed minutes,
+        // otherwise the "estimate" inflates by 60 min per unclosed hour.
+        let w = 60;
+        if (isToday && p.time) {
+          const bucketStart = new Date(p.time).getTime();
+          if (nowMs < bucketStart + 3_600_000) {
+            w = Math.max(0, Math.round((nowMs - bucketStart) / 60_000));
+          }
+        }
+        if (w <= 0) continue;
+        const zone = bounds.find((b) => p.avg! >= b.min && p.avg! <= b.max);
+        if (zone) minutes[zone.type] = (minutes[zone.type] ?? 0) + w;
+      }
+      const order = bounds.map((b) => b.type);
+      paintZones(
+        order.filter((t) => minutes[t]).map((t) => [t, minutes[t]]),
+        '· estimate by average HR',
+      );
+    } catch {
+      paintZones([], '');
+    }
+  }
+
+  // ── Activity levels (STILL/LOW/MODERATE/HIGH) ──
+  // Daily rollup provides activityLevelRollupByActivityLevel → rollupBy
+  // with minutes per level (parser covered by extract.test.ts).
+  const LEVEL_UI: Record<string, { cls: string; name: string }> = {
+    STILL: { cls: 'lv-still', name: 'Still' },
+    SEDENTARY: { cls: 'lv-sedentary', name: 'Sedentary' },
+    LOW: { cls: 'lv-low', name: 'Low' },
+    WALKING: { cls: 'lv-walking', name: 'Walking' },
+    MODERATE: { cls: 'lv-moderate', name: 'Moderate' },
+    HIGH: { cls: 'lv-high', name: 'Vigorous' },
+    RUNNING: { cls: 'lv-running', name: 'Running' },
+  };
+  // Order = gray scale from dark to light (otherwise bar gradient breaks)
+  const LEVEL_ORDER = ['STILL', 'SEDENTARY', 'LOW', 'WALKING', 'MODERATE', 'HIGH', 'RUNNING'];
+
+  async function updateLevels(date: string, gen: number): Promise<void> {
+    const wrap = $('#act-levels-wrap')!;
+    try {
+      const resp = await fetchJson<{ points: { rollupBy?: Record<string, number> }[] }>(
+        `/api/intraday?type=activity-level&date=${date}&window=86400s&offsetMin=${localOffsetMin()}`,
+      );
+      if (gen !== renderGen) return; // day already switched — don't draw outdated
+      const byLevel = resp.points[0]?.rollupBy ?? {};
+      const known = LEVEL_ORDER.filter((l) => byLevel[l]);
+      const extra = Object.keys(byLevel).filter((l) => !LEVEL_ORDER.includes(l));
+      const entries = [...known, ...extra].map((l) => [l, Math.round(Number(byLevel[l]))] as [string, number]);
+      if (entries.length === 0) {
+        wrap.hidden = true;
+        return;
+      }
+      const total = entries.reduce((acc, [, v]) => acc + v, 0) || 1;
+      wrap.hidden = false;
+      $('#act-levels')!.innerHTML = entries
+        .map(([l, v]) => `<div class="${LEVEL_UI[l]?.cls ?? 'lv-still'}" style="width:${(v / total) * 100}%"></div>`)
+        .join('');
+      $('#act-levels-legend')!.innerHTML = entries
+        .map(([l, v]) => {
+          const ui = LEVEL_UI[l] ?? { cls: 'lv-still', name: l.toLowerCase() };
+          return `<span><i class="${ui.cls}"></i>${esc(ui.name)}: ${fmt(v)} min</span>`;
+        })
+        .join('');
+    } catch {
+      wrap.hidden = true;
+    }
+  }
+
+  function render(s: DaySummary | null): void {
+    if (!s) return;
+    body.innerHTML = template();
+
+    const steps = toNumber(s.steps?.countSum) ?? 0;
+    countUp($('#act-steps')!, steps);
+    // Very large numbers must not overlap the ring.
+    $('#act-steps')!.classList.toggle('sm', steps >= 100_000);
+    const circ = 2 * Math.PI * 72;
+    $('#act-ring')!.style.strokeDashoffset = String(circ * (1 - Math.min(steps / GOAL, 1)));
+
+    countUp($('#act-kcal')!, s.active_calories?.kcalSum ?? null);
+    countUp($('#act-kcal-total')!, s.total_calories?.kcalSum ?? null);
+    const mm = toNumber(s.distance?.millimetersSum);
+    countUp($('#act-dist')!, mm !== null && mm !== undefined ? mm / 1_000_000 : null, { digits: 2 });
+    countUp($('#act-floors')!, toNumber(s.floors?.countSum) ?? null);
+    // active_minutes stores breakdown by level (rollupBy), no scalar sum
+    const am = extractAggregates(s.active_minutes);
+    countUp($('#act-min')!, totalOf(am));
+    const sedRaw = s.sedentary_period?.durationSum;
+    // API returns total sedentary duration (duration "13500s"),
+    // not a period counter — we convert to minutes via the common parser.
+    const sedMin =
+      typeof sedRaw === 'string'
+        ? Math.round((durationSeconds(sedRaw) ?? 0) / 60) || null
+        : (toNumber(sedRaw) ?? null);
+    countUp($('#act-sed')!, sedMin);
+
+    // ≥ 8 hours of sedentary time per day — time to stretch
+    if (sedMin !== null && sedMin >= 480) {
+      const warn = $('#act-warn')!;
+      warn.hidden = false;
+      warn.textContent = `Sedentary ${fmtDuration(sedMin * 60)} for the day — time to stretch`;
+    }
+
+    void updateZones(s, curDate, ++renderGen);
+    void updateLevels(curDate, renderGen);
+  }
+
+  let errored = false;
+  subscribeSummary((s, _prev, err) => {
+    if (err && !s) {
+      // Retry without reload: reload resets the selected day.
+      if (!errored) showError(body, err, () => void loadSummary(getDate()));
+      errored = true;
+      return;
+    }
+    errored = false;
+    render(s);
+  });
+
+  onDate((date) => {
+    curDate = date;
+  });
+</script>

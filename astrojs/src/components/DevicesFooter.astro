@@ -1,0 +1,46 @@
+---
+/**
+ * Footer: paired devices and last sync.
+ */
+---
+
+<footer class="panel devices reveal" style="--i:7" id="devices-footer" hidden>
+  <span class="label">Devices</span>
+  <div id="devices-list" style="display:flex;gap:26px;flex-wrap:wrap"></div>
+</footer>
+
+<script>
+  import type { PairedDevice } from '@lib/gh-types';
+  import { $, esc, fetchJson, relTime } from '@lib/ui';
+
+  async function load(): Promise<void> {
+    try {
+      const resp = await fetchJson<{ pairedDevices?: PairedDevice[] }>('/api/devices');
+      const devices = resp.pairedDevices ?? [];
+      const footer = $('#devices-footer')!;
+      footer.hidden = devices.length === 0;
+      $('#devices-list')!.innerHTML = devices
+        .map((d) => {
+          const joined = [d.manufacturer, d.model].filter(Boolean).join(' ');
+          const name = d.deviceVersion || d.deviceDisplayName || joined || 'Device';
+          const info = [
+            d.deviceType ? d.deviceType.toLowerCase() : '',
+            d.batteryLevel !== undefined ? `BAT ${d.batteryLevel}%` : '',
+            d.lastSyncTime ? `sync: ${relTime(d.lastSyncTime)}` : '',
+          ]
+            .filter(Boolean)
+            .join(' · ');
+          return `
+            <div class="device-item">
+              <span class="device-name">${esc(name)}</span>
+              <span class="device-sync">${esc(info) || '—'}</span>
+            </div>`;
+        })
+        .join('');
+    } catch {
+      // devices — non-critical, footer stays hidden
+    }
+  }
+
+  void load();
+</script>

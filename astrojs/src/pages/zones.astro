@@ -1,0 +1,356 @@
+---
+/**
+ * /zones — HR Zone Trend Page.
+ * Three charts: time-in-zone stacked bars, active zone minutes, calories by zone.
+ */
+import '@fontsource-variable/doto/full.css';
+import '@fontsource/ibm-plex-mono/400.css';
+import '@fontsource/ibm-plex-mono/500.css';
+import '@fontsource/ibm-plex-sans/400.css';
+import '@fontsource/ibm-plex-sans/500.css';
+import '@fontsource/ibm-plex-mono/600.css';
+import '../styles/global.css';
+
+import TopBar from '../components/TopBar.astro';
+import DevicesFooter from '../components/DevicesFooter.astro';
+---
+
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Google Health — HR Zones</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='34' fill='%23d71921'/%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <TopBar page="zones" />
+    <main class="wrap">
+      <div class="trends-head reveal" style="--i:0">
+        <span class="card-title dim">30-day heart rate zones</span>
+      </div>
+
+      <section class="panel card reveal b-full" style="--i:0" id="zone-today-card" hidden>
+        <div class="card-head">
+          <span class="card-title" style="color:var(--amber)">Today — zone distribution</span>
+        </div>
+        <div class="zone-today-grid" id="zone-today-grid"></div>
+      </section>
+
+      <section class="panel card reveal b-full" style="--i:1">
+        <div class="card-head">
+          <span class="card-title" style="color:var(--amber)">Time in HR zone</span>
+          <span class="label">minutes by day, stacked by zone</span>
+        </div>
+        <div class="zone-legend" id="tz-legend"></div>
+        <div class="chart chart-zone-stack" id="chart-time-in-zone"></div>
+      </section>
+
+      <section class="panel card reveal b-full" style="--i:2">
+        <div class="card-head">
+          <span class="card-title" style="color:var(--green)">Active zone minutes</span>
+          <span class="label">fat burn + cardio + peak by day</span>
+        </div>
+        <div class="chart chart-zone-bar" id="chart-active-zone-min"></div>
+      </section>
+
+      <section class="panel card reveal b-full" style="--i:3">
+        <div class="card-head">
+          <span class="card-title" style="color:var(--pink)">Calories by HR zone</span>
+          <span class="label">kcal by day, stacked by zone</span>
+        </div>
+        <div class="zone-legend" id="cz-legend"></div>
+        <div class="chart chart-zone-stack" id="chart-cal-by-zone"></div>
+      </section>
+      <DevicesFooter />
+    </main>
+
+    <script>
+      import { baseOpts, initChart, timeAxis, valueAxis, LABEL_COLOR, RED, WHITE } from '@lib/charts';
+      import { totalOf } from '@lib/extract';
+      import { hrZoneDistribution } from '@lib/stats';
+      import { $, esc, fmt, initReveal } from '@lib/ui';
+
+      initReveal();
+
+      // ── Nothing zone palette: gray ladder, peak — red.
+      //    Real API (Fitbit) sends LIGHT/MODERATE/VIGOROUS/PEAK; legacy names
+      //    rollUp (FAT_BURN/CARDIO/OUT_OF_ZONE) kept as fallback.
+      //    Values synced with .zone-* CSS classes in global.css —
+      //    otherwise the same zone looked like different grays on different pages. ──
+      const ZONE_COLORS: Record<string, string> = {
+        LIGHT: '#4d4d4d',
+        MODERATE: '#8c8c8c',
+        VIGOROUS: '#c4c4c4',
+        PEAK: RED,
+        FAT_BURN: '#4d4d4d',
+        CARDIO: '#8c8c8c',
+        OUT_OF_ZONE: '#2b2b2b',
+      };
+      const ZONE_LABELS: Record<string, string> = {
+        LIGHT: 'Light',
+        MODERATE: 'Moderate',
+        VIGOROUS: 'Vigorous',
+        PEAK: 'Peak',
+        FAT_BURN: 'Fat Burn',
+        CARDIO: 'Cardio',
+        OUT_OF_ZONE: 'Out of Zone',
+      };
+      const ZONE_ORDER = ['LIGHT', 'MODERATE', 'VIGOROUS', 'PEAK'];
+
+      const short = (d: string) => `${d.slice(8)}.${d.slice(5, 7)}`;
+      const pad2 = (x: number) => String(x).padStart(2, '0');
+      const daysAgoStr = (n: number): string => {
+        const d = new Date();
+        d.setDate(d.getDate() - n);
+        return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+      };
+
+      // ── Fetch helpers ──
+      interface ZonePoint { date?: string; zones?: Record<string, number> }
+      interface ZoneResp { points: ZonePoint[] }
+      interface SumPoint { date?: string; sum?: number; zones?: Record<string, number> }
+      interface SumResp { points: SumPoint[] }
+
+      const timeChart = initChart($('#chart-time-in-zone')!);
+      const activeChart = initChart($('#chart-active-zone-min')!);
+      const calChart = initChart($('#chart-cal-by-zone')!);
+
+      function buildLegend(containerId: string, zones: string[]): void {
+        const el = $(containerId);
+        if (!el) return;
+        el.innerHTML = zones
+          .map(
+            (z) =>
+              `<span class="zl-item"><i class="zl-dot" style="background:${ZONE_COLORS[z] ?? '#3d3d3d'}"></i>${esc(ZONE_LABELS[z] ?? z)}</span>`,
+          )
+          .join('');
+      }
+
+      /** Zone display order: canonical order + unknown zones at end. */
+      function orderedZones(present: Set<string>): string[] {
+        const keys = ZONE_ORDER.filter((z) => present.has(z));
+        for (const z of present) if (!keys.includes(z)) keys.push(z);
+        return keys;
+      }
+
+      /** Generic stacked-bar chart for zone data. */
+      function stackedZoneOpts(
+        dates: string[],
+        zoneKeys: string[],
+        dataByZone: Map<string, (number | null)[]>,
+        unit: string,
+      ): Record<string, unknown> {
+        return {
+          ...baseOpts(),
+          grid: { left: 44, right: 10, top: 14, bottom: 22 },
+          tooltip: {
+            ...(baseOpts().tooltip as object),
+            trigger: 'axis',
+            formatter: (p: { seriesName: string; name: string; value: number }[]) => {
+              const lines = p
+                .filter((x) => x.value != null && x.value > 0)
+                .map((x) => `${esc(x.seriesName)}: ${fmt(x.value)} ${unit}`);
+              return [p[0]?.name ?? '', ...lines].join('<br/>');
+            },
+          },
+          xAxis: {
+            ...timeAxis(),
+            data: dates.map(short),
+            axisLabel: { color: LABEL_COLOR, fontSize: 9, interval: Math.ceil(dates.length / 6) },
+          },
+          yAxis: { ...valueAxis(), scale: true },
+          series: zoneKeys.map((z) => ({
+            name: ZONE_LABELS[z] ?? z,
+            type: 'bar',
+            stack: 'zones',
+            data: dataByZone.get(z) ?? dates.map(() => 0),
+            barWidth: '60%',
+            itemStyle: { color: ZONE_COLORS[z] ?? '#3d3d3d', borderRadius: 0 },
+            emphasis: { focus: 'series' },
+          })),
+        };
+      }
+
+      async function loadAll(): Promise<void> {
+        const days = 30;
+        const dateStr = daysAgoStr(0);
+
+        const [timeRes, activeRes, calRes] = await Promise.allSettled([
+          fetch(`/api/history?type=time-in-heart-rate-zone&days=${days}&date=${dateStr}`)
+            .then((r) => r.json() as Promise<ZoneResp>),
+          fetch(`/api/history?type=active-zone-minutes&days=${days}&date=${dateStr}`)
+            .then((r) => r.json() as Promise<SumResp>),
+          fetch(`/api/history?type=calories-in-heart-rate-zone&days=${days}&date=${dateStr}`)
+            .then((r) => r.json() as Promise<ZoneResp>),
+        ]);
+
+        const val = <T,>(r: PromiseSettledResult<T>): T | null =>
+          r.status === 'fulfilled' ? r.value : null;
+
+        // ── Time in HR Zone (stacked bar) ──
+        const timePoints = val(timeRes)?.points ?? [];
+
+        // ── Today's zone distribution summary ──
+        // We DON'T normalize zones: API (Fitbit) sends LIGHT/MODERATE/VIGOROUS/PEAK,
+        // and the stacked chart below draws the same raw keys — the "Today" card
+        // must match them (previously canonicalZone renamed keys
+        // to FAT_BURN/CARDIO, and the ZONE_ORDER filter gave an empty card).
+        if (timePoints.length > 0) {
+          // Take the last day only if it's actually today:
+          // otherwise when current day has no data the "Today" card
+          // silently showed distribution for the last available day.
+          const todayPt = timePoints[timePoints.length - 1];
+          if (todayPt?.date === daysAgoStr(0) && todayPt?.zones && Object.keys(todayPt.zones).length > 0) {
+            const zoneArr = Object.entries(todayPt.zones).map(([zone, minutes]) => ({
+              zone,
+              minutes,
+            }));
+            const dist = hrZoneDistribution({ zones: zoneArr });
+            const gridEl = $('#zone-today-grid');
+            const cardEl = $('#zone-today-card');
+            if (gridEl && cardEl && Object.keys(dist).length > 0) {
+              gridEl.innerHTML = orderedZones(new Set(Object.keys(dist)))
+                .filter((z) => dist[z])
+                .map((z) => {
+                  const d = dist[z];
+                  return `<div class="zt-item"><i class="zl-dot" style="background:${ZONE_COLORS[z] ?? '#3d3d3d'}"></i><span class="zt-label">${esc(ZONE_LABELS[z] ?? z)}</span><b>${fmt(d.percent)}%</b><span class="faint">${fmt(d.minutes)} min</span></div>`;
+                })
+                .join('');
+              cardEl.hidden = false;
+            }
+          }
+        }
+
+        {
+          const dates = timePoints.map((p) => p.date ?? '');
+          // All zones present in data (in canonical order)
+          const allZones = new Set<string>();
+          for (const p of timePoints) if (p.zones) for (const z of Object.keys(p.zones)) allZones.add(z);
+          const zoneKeys = orderedZones(allZones);
+
+          const dataByZone = new Map<string, (number | null)[]>();
+          for (const z of zoneKeys) {
+            dataByZone.set(
+              z,
+              timePoints.map((p) => p.zones?.[z] ?? null),
+            );
+          }
+
+          buildLegend('#tz-legend', zoneKeys);
+          timeChart.setOption(stackedZoneOpts(dates, zoneKeys, dataByZone, 'min'), true);
+        }
+
+        // ── Active Zone Minutes (single bar) ──
+        const activePoints = val(activeRes)?.points ?? [];
+        activeChart.setOption({
+          ...baseOpts(),
+          grid: { left: 44, right: 10, top: 14, bottom: 22 },
+          tooltip: {
+            ...(baseOpts().tooltip as object),
+            trigger: 'axis',
+            formatter: (p: { name: string; value: number }[]) =>
+              `${p[0]?.name ?? ''}: ${fmt(p[0]?.value)} min`,
+          },
+          xAxis: {
+            ...timeAxis(),
+            data: activePoints.map((p) => short(p.date ?? '')),
+            axisLabel: {
+              color: LABEL_COLOR,
+              fontSize: 9,
+              interval: Math.ceil(activePoints.length / 6),
+            },
+          },
+          yAxis: { ...valueAxis(), scale: true },
+          series: [
+            {
+              type: 'bar',
+              // active-zone-minutes comes as zones (sumIn*HeartZone), no scalar sum
+              data: activePoints.map((p) => totalOf({ sum: p.sum, zones: p.zones }) ?? 0),
+              barWidth: '55%',
+              itemStyle: { color: WHITE, borderRadius: [2, 2, 0, 0] },
+            },
+          ],
+        }, true);
+
+        // ── Calories by Zone (stacked bar) ──
+        const calPoints = val(calRes)?.points ?? [];
+        {
+          const dates = calPoints.map((p) => p.date ?? '');
+          const allZones = new Set<string>();
+          for (const p of calPoints) if (p.zones) for (const z of Object.keys(p.zones)) allZones.add(z);
+          const zoneKeys = orderedZones(allZones);
+
+          const dataByZone = new Map<string, (number | null)[]>();
+          for (const z of zoneKeys) {
+            dataByZone.set(
+              z,
+              calPoints.map((p) => p.zones?.[z] ?? null),
+            );
+          }
+
+          buildLegend('#cz-legend', zoneKeys);
+          calChart.setOption(stackedZoneOpts(dates, zoneKeys, dataByZone, 'kcal'), true);
+        }
+      }
+
+      void loadAll();
+    </script>
+
+    <style>
+      .zone-legend {
+        display: flex;
+        gap: 16px;
+        padding: 0 8px 8px;
+        flex-wrap: wrap;
+      }
+      .zl-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 11px;
+        color: var(--text-dim);
+      }
+      .zl-dot {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+      }
+      .chart-zone-stack {
+        height: 320px;
+      }
+      .chart-zone-bar {
+        height: 260px;
+      }
+      /* On phone three tall full-width charts make the page endless —
+         we bring them to the same "standard" tier as other dashboard charts. */
+      @media (max-width: 620px) {
+        .chart-zone-stack { height: 220px; }
+        .chart-zone-bar { height: 180px; }
+      }
+      .b-full {
+        margin-bottom: 20px;
+      }
+      .zone-today-grid {
+        display: flex;
+        gap: 18px;
+        padding: 4px 8px 8px;
+        flex-wrap: wrap;
+      }
+      .zt-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+      }
+      .zt-label {
+        color: var(--text-dim);
+        font-size: 11px;
+      }
+    </style>
+  </body>
+</html>

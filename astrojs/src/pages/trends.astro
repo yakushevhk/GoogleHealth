@@ -1,0 +1,940 @@
+---
+/**
+ * /trends — long-term trends (30/90 days).
+ * Summary strip with "week over week" deltas, steps heatmap for 90 days,
+ * sleep by night (+rhythm regularity), steps (+streaks), HRV night/day,
+ * records, HRV/resting HR/SpO₂ trends, load, weight log.
+ */
+import '@fontsource-variable/doto/full.css';
+import '@fontsource/ibm-plex-mono/400.css';
+import '@fontsource/ibm-plex-mono/500.css';
+import '@fontsource/ibm-plex-sans/400.css';
+import '@fontsource/ibm-plex-sans/500.css';
+import '@fontsource/ibm-plex-mono/600.css';
+import '../styles/global.css';
+
+import TopBar from '../components/TopBar.astro';
+import DevicesFooter from '../components/DevicesFooter.astro';
+---
+
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Google Health — Trends</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='34' fill='%23d71921'/%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <TopBar page="trends" />
+    <main class="wrap">
+      <div class="trends-head reveal" style="--i:0">
+        <span class="card-title dim" id="tr-title">30-day summary</span>
+        <div class="range-toggle" id="tr-range" role="group" aria-label="Trend range">
+          <button data-days="30" class="on" aria-pressed="true">30</button>
+          <button data-days="90" aria-pressed="false">90</button>
+        </div>
+      </div>
+
+      <!-- Period comparison (Compare Health Periods) -->
+      <section class="panel card reveal compare-section" style="--i:0.5">
+        <div class="card-head">
+          <span class="card-title dim">Compare two periods</span>
+          <span class="label">Delta and percentage changes</span>
+        </div>
+        <div class="compare-controls">
+          <div class="comp-group">
+            <span class="comp-label">Period A:</span>
+            <input type="date" id="comp-a-start" aria-label="Period A start" />
+            <span>—</span>
+            <input type="date" id="comp-a-end" aria-label="Period A end" />
+          </div>
+          <div class="comp-group">
+            <span class="comp-label">Period B:</span>
+            <input type="date" id="comp-b-start" aria-label="Period B start" />
+            <span>—</span>
+            <input type="date" id="comp-b-end" aria-label="Period B end" />
+          </div>
+          <button id="run-compare-btn" class="run-btn">Compare</button>
+        </div>
+        <div id="compare-results" class="compare-results">
+          <div class="comp-metric">
+            <span class="dim">Steps · avg/day</span>
+            <div class="comp-val"><span id="comp-steps-a" class="mono">—</span> <span class="mono">→</span> <span id="comp-steps-b" class="mono">—</span></div>
+            <span id="comp-steps-delta" class="comp-badge">—</span>
+          </div>
+          <div class="comp-metric">
+            <span class="dim">Active calories · kcal/day</span>
+            <div class="comp-val"><span id="comp-cal-a" class="mono">—</span> <span class="mono">→</span> <span id="comp-cal-b" class="mono">—</span></div>
+            <span id="comp-cal-delta" class="comp-badge">—</span>
+          </div>
+        </div>
+        <p id="comp-error" class="comp-error" role="status" hidden></p>
+      </section>
+
+      <section class="summary-strip panel reveal" style="--i:1">
+        <div class="sum-cell s-rhr">
+          <div class="vital-label">Resting HR · avg</div>
+          <div class="sum-num empty" id="sum-rhr">—</div>
+          <div class="vital-unit">bpm</div>
+          <div class="sum-delta" id="d-rhr"></div>
+        </div>
+        <div class="sum-cell s-hrv">
+          <div class="vital-label">HRV · avg</div>
+          <div class="sum-num empty" id="sum-hrv">—</div>
+          <div class="vital-unit">ms</div>
+          <div class="sum-delta" id="d-hrv"></div>
+        </div>
+        <div class="sum-cell s-spo2">
+          <div class="vital-label">SpO₂ · avg</div>
+          <div class="sum-num empty" id="sum-spo2">—</div>
+          <div class="vital-unit">%</div>
+          <div class="sum-delta" id="d-spo2"></div>
+        </div>
+        <div class="sum-cell s-steps">
+          <div class="vital-label">Steps · total</div>
+          <div class="sum-num empty" id="sum-steps">—</div>
+          <div class="vital-unit">for period</div>
+          <div class="sum-delta" id="d-steps"></div>
+        </div>
+        <div class="sum-cell s-sleep">
+          <div class="vital-label">Sleep · total</div>
+          <div class="sum-num empty" id="sum-sleep">—</div>
+          <div class="vital-unit">hours</div>
+          <div class="sum-delta" id="d-sleep"></div>
+        </div>
+        <div class="sum-cell s-ex">
+          <div class="vital-label">Exercises</div>
+          <div class="sum-num empty" id="sum-ex">—</div>
+          <div class="vital-unit">sessions</div>
+          <div class="sum-delta" id="d-ex"></div>
+        </div>
+      </section>
+
+      <section class="panel card reveal b-full" style="--i:2">
+        <div class="card-head">
+          <span class="card-title" style="color:var(--green)">Heatmap · steps for 90 days</span>
+          <span class="hm-legend">
+            less
+            <i class="hm-cell hm-l0"></i><i class="hm-cell hm-l1"></i><i class="hm-cell hm-l2"></i><i class="hm-cell hm-l3"></i><i class="hm-cell hm-l4"></i>
+            more
+          </span>
+        </div>
+        <div class="heatmap" id="heatmap"></div>
+        <div class="heatmap-hint" id="heatmap-hint">scroll →</div>
+      </section>
+
+      <div class="bento">
+        <section class="panel card reveal b-heart" style="--i:3">
+          <div class="card-head">
+            <span class="card-title" style="color:var(--violet)">Sleep by night</span>
+            <span class="label">duration + bedtime</span>
+          </div>
+          <div class="chart chart-sleep-trend" id="chart-sleep-nights"></div>
+          <div class="rhythm-note" id="slp-rhythm"></div>
+        </section>
+
+        <section class="panel card reveal b-activity" style="--i:4">
+          <div class="card-head">
+            <span class="card-title" style="color:var(--green)">Steps by day</span>
+            <span class="label">goal 10,000</span>
+          </div>
+          <div class="chart chart-steps-trend" id="chart-steps"></div>
+          <div class="streak-note" id="steps-streak"></div>
+        </section>
+
+        <section class="panel card reveal b-body" style="--i:5">
+          <div class="card-head">
+            <span class="card-title" style="color:var(--teal)">HRV · night / day</span>
+            <span class="label">30 days</span>
+          </div>
+          <div class="nd-nums" id="nd-nums"></div>
+          <div class="chart chart-nd" id="chart-hrv-nd"></div>
+        </section>
+
+        <section class="panel card reveal b-heart" style="--i:6">
+          <div class="card-head">
+            <span class="card-title" style="color:var(--amber)">Records</span>
+            <span class="label" id="rec-period"></span>
+          </div>
+          <div class="rec-list" id="rec-list"></div>
+        </section>
+
+        <section class="panel card reveal b-trio" style="--i:7">
+          <div class="card-head"><span class="card-title" style="color:var(--teal)">HRV</span></div>
+          <div class="chart chart-trio" id="chart-hrv"></div>
+        </section>
+        <section class="panel card reveal b-trio" style="--i:8">
+          <div class="card-head"><span class="card-title" style="color:var(--pink)">Resting HR</span></div>
+          <div class="chart chart-trio" id="chart-rhr"></div>
+        </section>
+        <section class="panel card reveal b-trio" style="--i:9">
+          <div class="card-head"><span class="card-title" style="color:var(--sky)">SpO₂</span></div>
+          <div class="chart chart-trio" id="chart-spo2"></div>
+        </section>
+
+        <section class="panel card reveal b-heart" style="--i:10">
+          <div class="card-head">
+            <span class="card-title" style="color:var(--amber)">Load</span>
+            <span class="label">active kcal by day</span>
+          </div>
+          <div class="chart chart-load" id="chart-load"></div>
+        </section>
+
+        <section class="panel card reveal b-body" style="--i:11">
+          <div class="card-head">
+            <span class="card-title" style="color:var(--amber)">Weight</span>
+            <span class="label">90 days</span>
+          </div>
+          <div class="chart chart-weight" id="chart-weight"></div>
+          <div class="weight-log" id="tr-weight-log"></div>
+        </section>
+      </div>
+      <DevicesFooter />
+    </main>
+    <script>
+      import {
+        baseOpts,
+        initChart,
+        timeAxis,
+        valueAxis,
+        GRAY,
+        GRAY_LT,
+        LABEL_COLOR,
+        RED,
+        WHITE,
+      } from '@lib/charts';
+      import { firstNumber, toNumber } from '@lib/extract';
+      import {
+        computeStreaks,
+        mean,
+        splitNightDay,
+        stdDev,
+        weekOverWeekPct,
+      } from '@lib/stats';
+      import { $, countUp, fetchJson, fmt, fmtDuration, initReveal } from '@lib/ui';
+
+      initReveal();
+
+      interface Pt { date?: string; avg?: number; sum?: number }
+      interface SeriesResp { points: Pt[] }
+      interface SleepSession {
+        date: string;
+        start: string | null;
+        end: string | null;
+        startUtcOffset: string | null;
+        endUtcOffset: string | null;
+        bedTime: string | null;
+        bedHours: number | null;
+        seconds: number | null;
+        type: string | null;
+        asleepMinutes: number | null;
+        awakeMinutes: number | null;
+        minutesInSleepPeriod: number | null;
+        minutesToFallAsleep: number | null;
+        stagesSummary: unknown;
+        hasStages: boolean;
+        stages: unknown;
+        metadata: unknown;
+      }
+      interface ExerciseSess {
+        date: string;
+        start: string | null;
+        end: string | null;
+        startUtcOffset: string | null;
+        endUtcOffset: string | null;
+        seconds: number | null;
+        activeDuration: string | null;
+        type: string | null;
+        name: string | null;
+        metrics: unknown;
+        metadata: unknown;
+        dataSource: unknown;
+      }
+      interface SessionsResp { sessions: SleepSession[] }
+      interface ExResp { sessions: ExerciseSess[] }
+      interface SamplesResp { points: { time: string; value: number }[] }
+
+      const sleepChart = initChart($('#chart-sleep-nights')!);
+      const stepsChart = initChart($('#chart-steps')!);
+      const hrvChart = initChart($('#chart-hrv')!);
+      const rhrChart = initChart($('#chart-rhr')!);
+      const spo2Chart = initChart($('#chart-spo2')!);
+      const loadChart = initChart($('#chart-load')!);
+      const weightChart = initChart($('#chart-weight')!);
+      const ndChart = initChart($('#chart-hrv-nd')!);
+
+      const short = (d: string) => `${d.slice(8)}.${d.slice(5, 7)}`;
+      const pad2 = (x: number) => String(x).padStart(2, '0');
+      const daysAgoStr = (n: number): string => {
+        const d = new Date();
+        d.setDate(d.getDate() - n);
+        return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+      };
+      const todayStr = daysAgoStr(0);
+
+      function lineOpts(dates: string[], vals: (number | null)[], color: string, unit: string, digits = 0): Record<string, unknown> {
+        return {
+          ...baseOpts(),
+          grid: { left: 36, right: 10, top: 10, bottom: 22 },
+          tooltip: {
+            ...(baseOpts().tooltip as object),
+            trigger: 'axis',
+            formatter: (p: { name: string; value: number }[]) =>
+              `${p[0]?.name ?? ''}: ${fmt(p[0]?.value, digits)} ${unit}`,
+          },
+          xAxis: {
+            ...timeAxis(),
+            data: dates.map(short),
+            boundaryGap: false,
+            axisLabel: { color: LABEL_COLOR, fontSize: 9, interval: Math.ceil(dates.length / 6) },
+          },
+          yAxis: { ...valueAxis(), scale: true },
+          series: [
+            {
+              type: 'line',
+              data: vals,
+              symbol: 'none',
+              connectNulls: true,
+              lineStyle: { color, width: 1.8 },
+              itemStyle: { color },
+              areaStyle: { color, opacity: 0.08 },
+            },
+          ],
+        };
+      }
+
+      /** "7 days vs previous 7" delta for summary strip cell. */
+      function paintDelta(id: string, pct: number | null): void {
+        const el = $(id)!;
+        if (pct === null) {
+          el.textContent = '';
+          return;
+        }
+        const up = pct >= 0;
+        el.innerHTML = `<span class="${up ? 'up' : 'down'}">${up ? '▲' : '▼'} ${up ? '+' : '−'}${fmt(Math.abs(pct))}% vs prev week</span>`;
+      }
+
+      // ── Steps heatmap: 90 days, weeks as columns, Mon–Sun as rows ──
+      function paintHeatmap(stepsByDate: Map<string, number>): void {
+        const dates: string[] = [];
+        for (let i = 89; i >= 0; i--) dates.push(daysAgoStr(i));
+        const firstDow = (new Date(`${dates[0]}T00:00:00Z`).getUTCDay() + 6) % 7; // Mon = 0
+        const max = Math.max(1, ...stepsByDate.values());
+        const level = (v: number) => Math.max(1, Math.ceil((v / max) * 4));
+        const cells: string[] = [];
+        for (let i = 0; i < firstDow; i++) cells.push('<i class="hm-cell hm-pad"></i>');
+        for (const d of dates) {
+          const v = stepsByDate.get(d);
+          // 0 steps and "no data" — lightest level (distinguished by title)
+          const cls = !v ? 'hm-l0' : `hm-l${level(v)}`;
+          const title =
+            v === undefined
+              ? `${short(d)} — no data`
+              : `${short(d)} — ${fmt(v)} steps`;
+          cells.push(`<i class="hm-cell ${cls}" title="${title}"></i>`);
+        }
+        $('#heatmap')!.innerHTML = cells.join('');
+        // "Scroll" hint — only when the strip actually overflows:
+        // 90 days ≈ 207px usually fit even on narrow screens, and the hint lied.
+        const hm = $('#heatmap')!;
+        const hint = $('#heatmap-hint');
+        if (hint) hint.style.display = hm.scrollWidth > hm.clientWidth ? 'block' : 'none';
+      }
+
+      async function loadAll(days: number): Promise<void> {
+        $('#tr-title')!.textContent = `${days}-day summary`;
+        const dateStr = todayStr;
+
+        const [sleep, steps, hrv, rhr, spo2, weight, kcal, ex, steps90, hrvSamples] =
+          await Promise.allSettled([
+            fetchJson<SessionsResp>(`/api/history?type=sleep&days=${days}&date=${dateStr}`),
+            fetchJson<SeriesResp>(`/api/history?type=steps&days=${days}&date=${dateStr}`),
+            fetchJson<SeriesResp>(`/api/history?type=daily-heart-rate-variability&days=${days}&date=${dateStr}`),
+            fetchJson<SeriesResp>(`/api/history?type=daily-resting-heart-rate&days=${days}&date=${dateStr}`),
+            fetchJson<SeriesResp>(`/api/history?type=daily-oxygen-saturation&days=${days}&date=${dateStr}`),
+            fetchJson<SeriesResp>(`/api/history?type=weight&days=90&date=${dateStr}`),
+            fetchJson<SeriesResp>(`/api/history?type=active-energy-burned&days=${days}&date=${dateStr}`),
+            fetchJson<ExResp>(`/api/history?type=exercise&days=${days}&date=${dateStr}`),
+            fetchJson<SeriesResp>(`/api/history?type=steps&days=90&date=${dateStr}`),
+            fetchJson<SamplesResp>(`/api/samples?type=heart-rate-variability&days=30&date=${dateStr}`),
+          ]);
+
+        const val = <T,>(r: PromiseSettledResult<T>): T | null =>
+          r.status === 'fulfilled' ? r.value : null;
+
+        const sleepS = val(sleep)?.sessions ?? [];
+        const stepsP = val(steps)?.points ?? [];
+        const hrvP = val(hrv)?.points ?? [];
+        const rhrP = val(rhr)?.points ?? [];
+        const spo2P = val(spo2)?.points ?? [];
+        const weightP = (val(weight)?.points ?? []).map((p) => ({
+          date: p.date,
+          avg: p.avg !== undefined ? p.avg / 1000 : undefined,
+        }));
+        const kcalP = val(kcal)?.points ?? [];
+        const exS = val(ex)?.sessions ?? [];
+        const steps90P = val(steps90)?.points ?? [];
+        const hrvSamplesP = val(hrvSamples)?.points ?? [];
+
+        // ── Summary strip ──
+        countUp($('#sum-rhr')!, mean(rhrP.map((p) => p.avg).filter((v): v is number => v !== undefined)));
+        countUp($('#sum-hrv')!, mean(hrvP.map((p) => p.avg).filter((v): v is number => v !== undefined)));
+        countUp($('#sum-spo2')!, mean(spo2P.map((p) => p.avg).filter((v): v is number => v !== undefined)));
+        countUp($('#sum-steps')!, stepsP.reduce((a, p) => a + (p.sum ?? 0), 0) || null);
+        const sleepHours = sleepS.reduce((a, s) => a + (s.asleepMinutes ?? (s.seconds ?? 0) / 60) / 60, 0);
+        countUp($('#sum-sleep')!, sleepS.length ? Math.round(sleepHours * 10) / 10 : null, { digits: 1 });
+        countUp($('#sum-ex')!, exS.length || null);
+
+        // ── Week over week ──
+        const last7 = (pts: Pt[], f: (p: Pt) => number | undefined) =>
+          pts.slice(-7).map((p) => f(p)).filter((v): v is number => v !== undefined);
+        const prev7 = (pts: Pt[], f: (p: Pt) => number | undefined) =>
+          pts.slice(-14, -7).map((p) => f(p)).filter((v): v is number => v !== undefined);
+        paintDelta('#d-rhr', weekOverWeekPct(last7(rhrP, (p) => p.avg), prev7(rhrP, (p) => p.avg)));
+        paintDelta('#d-hrv', weekOverWeekPct(last7(hrvP, (p) => p.avg), prev7(hrvP, (p) => p.avg)));
+        paintDelta('#d-spo2', weekOverWeekPct(last7(spo2P, (p) => p.avg), prev7(spo2P, (p) => p.avg)));
+        paintDelta('#d-steps', weekOverWeekPct(last7(stepsP, (p) => p.sum), prev7(stepsP, (p) => p.sum)));
+        const wk = daysAgoStr(7);
+        const wk2 = daysAgoStr(14);
+        const slMin = (ss: SleepSession[]) => ss.reduce((a, s) => a + (s.asleepMinutes ?? 0), 0);
+        paintDelta(
+          '#d-sleep',
+          weekOverWeekPct(
+            [slMin(sleepS.filter((s) => s.date > wk))],
+            [slMin(sleepS.filter((s) => s.date > wk2 && s.date <= wk))],
+          ),
+        );
+        paintDelta(
+          '#d-ex',
+          weekOverWeekPct(
+            [exS.filter((s) => s.date > wk).length],
+            [exS.filter((s) => s.date > wk2 && s.date <= wk).length],
+          ),
+        );
+
+        // ── Heatmap + streaks ──
+        const stepsByDate = new Map<string, number>();
+        for (const p of steps90P) if (p.date) stepsByDate.set(p.date, p.sum ?? 0);
+        paintHeatmap(stepsByDate);
+        const sk = computeStreaks(
+          steps90P.map((p) => ({ date: p.date ?? '', value: p.sum ?? 0 })).filter((e) => e.date),
+          10_000,
+          todayStr,
+        );
+        $('#steps-streak')!.innerHTML =
+          `Streak ≥ 10,000: <b>${sk.current}</b> d now · record <b>${sk.longest}</b> d`;
+
+        // ── Sleep regularity ──
+        const bedMin = sleepS
+          .filter((s) => s.bedHours !== null)
+          .map((s) => (s.bedHours as number) * 60);
+        const durMin = sleepS
+          .filter((s) => s.asleepMinutes !== null)
+          .map((s) => s.asleepMinutes as number);
+        $('#slp-rhythm')!.innerHTML =
+          bedMin.length >= 2
+            ? `Rhythm: bedtime ±${fmt(stdDev(bedMin))} min · duration ±${fmt(stdDev(durMin))} min`
+            : '';
+
+        // ── HRV night / day ──
+        const windows = sleepS
+          .filter((s) => s.start && s.end)
+          .map((s) => ({ start: s.start as string, end: s.end as string }));
+        const { night, day } = splitNightDay(hrvSamplesP, windows);
+        const nightAvg = mean(night.map((s) => s.value));
+        const dayAvg = mean(day.map((s) => s.value));
+        const ratio = nightAvg !== null && dayAvg !== null && dayAvg > 0 ? nightAvg / dayAvg : null;
+        $('#nd-nums')!.innerHTML =
+          nightAvg !== null
+            ? `<span class="nd-big">${fmt(nightAvg)}</span><span class="vital-unit">ms at night</span>` +
+              `<span class="nd-sep">/</span>` +
+              `<span class="nd-mid">${fmt(dayAvg)}</span><span class="vital-unit">ms daytime</span>` +
+              (ratio !== null ? `<span class="nd-ratio">×${fmt(ratio, 2)}</span>` : '')
+            : '<span class="empty-note">no HRV samples</span>';
+        const byDay = (ss: { time: string; value: number }[]) => {
+          const m = new Map<string, number[]>();
+          for (const s of ss) {
+            const d = s.time.slice(0, 10);
+            (m.get(d) ?? m.set(d, []).get(d)!).push(s.value);
+          }
+          return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+        };
+        const nightD = byDay(night);
+        const dayD = byDay(day);
+        const ndDates = [...new Set([...nightD.map(([d]) => d), ...dayD.map(([d]) => d)])].sort();
+        const pick = (arr: [string, number[]][], d: string) => {
+          const f = arr.find(([dd]) => dd === d);
+          return f ? Math.round((mean(f[1]) ?? 0) * 10) / 10 : null;
+        };
+        ndChart.setOption({
+          ...baseOpts(),
+          grid: { left: 34, right: 10, top: 10, bottom: 22 },
+          tooltip: {
+            ...(baseOpts().tooltip as object),
+            trigger: 'axis',
+            formatter: (p: { seriesName: string; name: string; value: number }[]) =>
+              p
+                .filter((x) => x.value !== null && x.value !== undefined)
+                .map((x) => `${x.seriesName}: ${x.value} ms`)
+                .join('<br/>'),
+          },
+          xAxis: {
+            ...timeAxis(),
+            data: ndDates.map(short),
+            boundaryGap: false,
+            axisLabel: { color: LABEL_COLOR, fontSize: 9, interval: Math.ceil(ndDates.length / 5) },
+          },
+          yAxis: { ...valueAxis(), scale: true },
+          series: [
+            {
+              name: 'night',
+              type: 'line',
+              data: ndDates.map((d) => pick(nightD, d)),
+              symbol: 'none',
+              connectNulls: true,
+              lineStyle: { color: GRAY_LT, width: 1.8 },
+              itemStyle: { color: GRAY_LT },
+              areaStyle: { color: GRAY_LT, opacity: 0.07 },
+            },
+            {
+              name: 'day',
+              type: 'line',
+              data: ndDates.map((d) => pick(dayD, d)),
+              symbol: 'none',
+              connectNulls: true,
+              lineStyle: { color: GRAY, width: 1.4, type: 'dashed' },
+              itemStyle: { color: GRAY },
+            },
+          ],
+        }, true);
+
+        // ── Records ──
+        $('#rec-period')!.textContent = `${days} days`;
+        const recs: { icon: string; label: string; value: string; date: string }[] = [];
+        const bestStep = stepsP.reduce<Pt | null>((best, p) =>
+          (p.sum ?? 0) > (best?.sum ?? 0) ? p : best, null);
+        if (bestStep?.date) {
+          recs.push({ icon: 'STP', label: 'Steps', value: `${fmt(bestStep.sum ?? 0)}`, date: short(bestStep.date) });
+        }
+        const bestSleep = sleepS.reduce<SleepSession | null>(
+          (best, s) => ((s.asleepMinutes ?? 0) > (best?.asleepMinutes ?? 0) ? s : best),
+          null,
+        );
+        if (bestSleep?.asleepMinutes) {
+          recs.push({ icon: 'SLP', label: 'Sleep', value: fmtDuration(bestSleep.asleepMinutes * 60), date: short(bestSleep.date) });
+        }
+        const bestHrv = hrvP.reduce<Pt | null>((best, p) =>
+          (p.avg ?? 0) > (best?.avg ?? 0) ? p : best, null);
+        if (bestHrv?.date) {
+          recs.push({ icon: 'HRV', label: 'HRV', value: `${fmt(bestHrv.avg ?? 0)} ms`, date: short(bestHrv.date) });
+        }
+        const bestKcal = kcalP.reduce<Pt | null>((best, p) =>
+          (p.sum ?? 0) > (best?.sum ?? 0) ? p : best, null);
+        if (bestKcal?.date) {
+          recs.push({ icon: 'KCAL', label: 'Kcal', value: `${fmt(bestKcal.sum ?? 0)}`, date: short(bestKcal.date) });
+        }
+        // Best walk/run: distance + pace from metricsSummary
+        // (flat Health Sync keys: distanceMillimeters, averagePaceSecondsPerMeter)
+        let bestRun: { km: number; pace: number; date: string; walk: boolean } | null = null;
+        for (const s of exS) {
+          if (!/RUN|JOG|WALK/i.test(s.type ?? '')) continue;
+          const m = s.metrics as Record<string, unknown> | null;
+          const distMm =
+            toNumber(m?.distanceMillimeters) ??
+            firstNumber((m?.distance as Record<string, unknown>) ?? null);
+          if (!distMm || !s.seconds) continue;
+          const km = distMm / 1_000_000;
+          if (km < 0.5) continue;
+          const pacePerMeter = toNumber(m?.averagePaceSecondsPerMeter);
+          const pace = pacePerMeter
+            ? (pacePerMeter * 1000) / 60 // sec/m → min/km
+            : s.seconds / 60 / km;
+          if (!bestRun || pace < bestRun.pace) {
+            bestRun = { km, pace, date: s.date, walk: /WALK/i.test(s.type ?? '') };
+          }
+        }
+        if (bestRun) {
+          const mm = Math.floor(bestRun.pace);
+          const ss = Math.round((bestRun.pace - mm) * 60);
+          recs.push({
+            icon: bestRun.walk ? 'WLK' : 'RUN',
+            label: bestRun.walk ? 'Walking' : 'Running',
+            value: `${fmt(bestRun.km, 1)} km · ${mm}'${pad2(ss)}"/km`,
+            date: short(bestRun.date),
+          });
+        }
+        $('#rec-list')!.innerHTML =
+          recs.length > 0
+            ? recs
+                .map(
+                  (r) => `
+                  <div class="rec-row">
+                    <span class="rec-icon">${r.icon}</span>
+                    <span class="rec-label">${r.label}</span>
+                    <b class="rec-val">${r.value}</b>
+                    <span class="rec-date mono faint">${r.date}</span>
+                  </div>`,
+                )
+                .join('')
+            : '<div class="empty-note">nothing yet</div>';
+
+        // ── Sleep by night ──
+        // Bedtime axis range — from data: fixed 20–32 clipped
+        // early (12:00–20:00) and late (after 08:00) bedtimes.
+        const bedVals = sleepS
+          .map((s) => s.bedHours)
+          .filter((v): v is number => v != null && !Number.isNaN(v));
+        let bedAxisMin = bedVals.length ? Math.floor(Math.min(...bedVals)) : 20;
+        let bedAxisMax = bedVals.length ? Math.ceil(Math.max(...bedVals)) : 32;
+        if (bedAxisMax - bedAxisMin < 2) {
+          bedAxisMin -= 1;
+          bedAxisMax += 1;
+        }
+        sleepChart.setOption({
+          ...baseOpts(),
+          grid: { left: 36, right: 42, top: 14, bottom: 22 },
+          tooltip: {
+            ...(baseOpts().tooltip as object),
+            trigger: 'axis',
+            formatter: (p: { seriesName: string; name: string; value: number }[]) => {
+              const dur = p.find((x) => x.seriesName === 'sleep');
+              const bed = p.find((x) => x.seriesName === 'bedtime');
+              const bedH = bed?.value != null ? Math.round(bed.value % 24) : null;
+              return [
+                dur ? `${dur.name}: ${fmt(dur.value, 1)} h` : '',
+                bedH !== null ? `bedtime: ~${pad2(bedH)}:00` : '',
+              ].filter(Boolean).join('<br/>');
+            },
+          },
+          xAxis: {
+            ...timeAxis(),
+            data: sleepS.map((s) => short(s.date)),
+            axisLabel: { color: LABEL_COLOR, fontSize: 9, interval: Math.ceil(sleepS.length / 8) },
+          },
+          yAxis: [
+            { ...valueAxis(), name: 'h', max: 12 },
+            {
+              type: 'value',
+              min: bedAxisMin,
+              max: bedAxisMax,
+              splitLine: { show: false },
+              axisLabel: {
+                color: LABEL_COLOR,
+                fontSize: 9,
+                formatter: (v: number) => `${pad2(Math.round(v) % 24)}:00`,
+              },
+            },
+          ],
+          series: [
+            {
+              name: 'sleep',
+              type: 'bar',
+              data: sleepS.map((s) =>
+                Math.round(((s.asleepMinutes ?? 0) || (s.seconds ?? 0) / 60) / 60 * 10) / 10,
+              ),
+              barWidth: '55%',
+              itemStyle: { color: '#b3b3b3', borderRadius: [2, 2, 0, 0] },
+            },
+            {
+              name: 'bedtime',
+              type: 'line',
+              yAxisIndex: 1,
+              data: sleepS.map((s) => s.bedHours),
+              symbol: 'circle',
+              symbolSize: 5,
+              lineStyle: { color: WHITE, width: 1.4, type: 'dashed' },
+              itemStyle: { color: WHITE },
+            },
+          ],
+        }, true);
+
+        // ── Steps ──
+        stepsChart.setOption({
+          ...baseOpts(),
+          grid: { left: 44, right: 10, top: 14, bottom: 22 },
+          tooltip: {
+            ...(baseOpts().tooltip as object),
+            trigger: 'axis',
+            formatter: (p: { name: string; value: number }[]) =>
+              `${p[0]?.name ?? ''}: ${fmt(p[0]?.value)} steps`,
+          },
+          xAxis: {
+            ...timeAxis(),
+            data: stepsP.map((p) => short(p.date ?? '')),
+            axisLabel: { color: LABEL_COLOR, fontSize: 9, interval: Math.ceil(stepsP.length / 6) },
+          },
+          yAxis: valueAxis(),
+          series: [
+            {
+              type: 'bar',
+              data: stepsP.map((p) => p.sum ?? 0),
+              barWidth: '55%',
+              itemStyle: {
+                color: (p: { value: number }) => (p.value >= 10000 ? WHITE : '#2b2b2b'),
+                borderRadius: [2, 2, 0, 0],
+              },
+              markLine: {
+                symbol: 'none',
+                lineStyle: { color: WHITE, type: 'dashed', opacity: 0.5 },
+                label: { color: LABEL_COLOR, fontSize: 9, formatter: '10k' },
+                data: [{ yAxis: 10000 }],
+              },
+            },
+          ],
+        }, true);
+
+        // ── Trend trio ──
+        hrvChart.setOption(lineOpts(hrvP.map((p) => p.date ?? ''), hrvP.map((p) => p.avg ?? null), GRAY_LT, 'ms'), true);
+        rhrChart.setOption(lineOpts(rhrP.map((p) => p.date ?? ''), rhrP.map((p) => p.avg ?? null), RED, 'bpm'), true);
+        spo2Chart.setOption(lineOpts(spo2P.map((p) => p.date ?? ''), spo2P.map((p) => p.avg ?? null), WHITE, '%'), true);
+
+        // ── Load ──
+        loadChart.setOption({
+          ...baseOpts(),
+          grid: { left: 44, right: 10, top: 14, bottom: 22 },
+          tooltip: {
+            ...(baseOpts().tooltip as object),
+            trigger: 'axis',
+            formatter: (p: { name: string; value: number }[]) =>
+              `${p[0]?.name ?? ''}: ${fmt(p[0]?.value)} kcal`,
+          },
+          xAxis: {
+            ...timeAxis(),
+            data: kcalP.map((p) => short(p.date ?? '')),
+            axisLabel: { color: LABEL_COLOR, fontSize: 9, interval: Math.ceil(kcalP.length / 8) },
+          },
+          yAxis: valueAxis(),
+          series: [
+            {
+              type: 'bar',
+              data: kcalP.map((p) => Math.round(p.sum ?? 0)),
+              barWidth: '55%',
+              itemStyle: { color: GRAY, borderRadius: [2, 2, 0, 0] },
+            },
+          ],
+        }, true);
+
+        // ── Weight ──
+        const wPts = weightP.filter(
+          (p): p is { date: string; avg: number } => p.avg !== undefined && !!p.date,
+        );
+        weightChart.setOption({
+          ...baseOpts(),
+          grid: { left: 40, right: 10, top: 14, bottom: 22 },
+          tooltip: {
+            ...(baseOpts().tooltip as object),
+            trigger: 'item',
+            formatter: (p: { name: string; value: number }) =>
+              `${p.name ?? ''}: ${fmt(p.value, 1)} kg`,
+          },
+          xAxis: {
+            ...timeAxis(),
+            data: wPts.map((p) => short(p.date)),
+            axisLabel: { color: LABEL_COLOR, fontSize: 9 },
+          },
+          yAxis: { ...valueAxis(), scale: true },
+          series: [
+            {
+              type: 'line',
+              data: wPts.map((p) => Math.round(p.avg * 10) / 10),
+              symbol: 'circle',
+              symbolSize: 7,
+              lineStyle: { color: WHITE, width: 1.6 },
+              itemStyle: { color: WHITE },
+            },
+          ],
+        }, true);
+        $('#tr-weight-log')!.innerHTML = wPts
+          .slice()
+          .reverse()
+          .slice(0, 5)
+          .map(
+            (p) =>
+              `<div class="weight-log-row"><span class="mono faint">${p.date.slice(8)}.${p.date.slice(5, 7)}.${p.date.slice(2, 4)}</span><b>${fmt(p.avg, 1)} kg</b></div>`,
+          )
+          .join('');
+      }
+
+      let days = 30;
+      $('#tr-range')!.addEventListener('click', (e) => {
+        const btn = (e.target as HTMLElement).closest('button');
+        if (!btn) return;
+        days = Number(btn.dataset.days);
+        $('#tr-range')!.querySelectorAll('button').forEach((b) => {
+          const on = b === btn;
+          b.classList.toggle('on', on);
+          b.setAttribute('aria-pressed', String(on));
+        });
+        void loadAll(days);
+      });
+
+      /** Comparison defaults — two last full weeks relative to today. */
+      function setDefaultCompareDates(): void {
+        const set = (id: string, d: string) => {
+          const el = document.getElementById(id) as HTMLInputElement | null;
+          if (el) el.value = d;
+        };
+        set('comp-a-start', daysAgoStr(13));
+        set('comp-a-end', daysAgoStr(7));
+        set('comp-b-start', daysAgoStr(6));
+        set('comp-b-end', daysAgoStr(0));
+      }
+
+      interface CompareResp {
+        period1?: { avg_daily_steps?: number; avg_daily_active_calories?: number };
+        period2?: { avg_daily_steps?: number; avg_daily_active_calories?: number };
+        deltas?: Record<string, { diff: number; pct: string }>;
+      }
+
+      function fmtDelta(x: { diff: number; pct: string } | undefined): string {
+        if (!x) return '—';
+        return `${x.diff > 0 ? '+' : ''}${x.diff} (${x.pct})`;
+      }
+
+      function setDelta(id: string, x: { diff: number; pct: string } | undefined): void {
+        const el = document.getElementById(id)!;
+        el.textContent = fmtDelta(x);
+        el.classList.toggle('down', !!x && x.diff < 0);
+        el.classList.toggle('up', !!x && x.diff > 0);
+      }
+
+      async function runComparison() {
+        const p1Start = (document.getElementById('comp-a-start') as HTMLInputElement).value;
+        const p1End = (document.getElementById('comp-a-end') as HTMLInputElement).value;
+        const p2Start = (document.getElementById('comp-b-start') as HTMLInputElement).value;
+        const p2End = (document.getElementById('comp-b-end') as HTMLInputElement).value;
+        const errBox = document.getElementById('comp-error');
+        const showErr = (msg: string) => {
+          if (errBox) {
+            errBox.hidden = false;
+            errBox.textContent = msg;
+          }
+        };
+
+        try {
+          const resp = await fetch(`/api/analytics?mode=compare&p1Start=${p1Start}&p1End=${p1End}&p2Start=${p2Start}&p2End=${p2End}`);
+          const res = (await resp.json()) as CompareResp & { error?: string };
+          if (!resp.ok || !res.period1 || !res.period2) {
+            // Previously error was silently swallowed and panel stayed on "—".
+            showErr(res.error ?? 'Failed to compare periods');
+            return;
+          }
+          if (errBox) errBox.hidden = true;
+          const d = res.deltas ?? {};
+          const set = (id: string, v: string) => {
+            const el = document.getElementById(id)!;
+            // Number after comparison is drawn in Doto (.comp-val container);
+            // we remove the mono dash placeholder, otherwise number stays mono.
+            el.classList.remove('mono');
+            el.textContent = v;
+          };
+          set('comp-steps-a', (res.period1.avg_daily_steps ?? 0).toLocaleString());
+          set('comp-steps-b', (res.period2.avg_daily_steps ?? 0).toLocaleString());
+          setDelta('comp-steps-delta', d.avg_daily_steps);
+          set('comp-cal-a', (res.period1.avg_daily_active_calories ?? 0).toLocaleString());
+          set('comp-cal-b', (res.period2.avg_daily_active_calories ?? 0).toLocaleString());
+          setDelta('comp-cal-delta', d.avg_daily_active_calories);
+        } catch {
+          showErr('Network error — comparison unavailable');
+        }
+      }
+
+      document.getElementById('run-compare-btn')?.addEventListener('click', runComparison);
+      setDefaultCompareDates();
+      // Comparison no longer runs automatically on each /trends visit:
+      // it makes 14 Google API requests for two numbers. Now — on button click.
+      void loadAll(days);
+    </script>
+
+    <style>
+      .compare-section {
+        margin-bottom: 20px;
+        padding: 20px;
+        border-radius: var(--radius);
+      }
+      .compare-controls {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        flex-wrap: wrap;
+        margin: 16px 0;
+      }
+      .comp-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        font-size: 13px;
+      }
+      .comp-group input[type="date"] {
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        color: var(--text);
+        padding: 6px 10px;
+        border-radius: 2px;
+        font-family: var(--font-mono);
+        font-size: 12px;
+      }
+      .run-btn {
+        background: var(--text);
+        color: #000;
+        font-family: var(--font-mono);
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 2px;
+        cursor: pointer;
+        transition: opacity 0.15s ease;
+      }
+      .run-btn:hover { opacity: 0.85; }
+      .run-btn:active { opacity: 0.7; }
+      .compare-results {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+        gap: 16px;
+        margin-top: 16px;
+        padding-top: 16px;
+        border-top: 1px solid var(--border);
+      }
+      .comp-error {
+        margin: 12px 0 0;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--accent-text);
+      }
+      .comp-metric {
+        background: var(--panel-2);
+        padding: 14px 18px;
+        border-radius: var(--radius);
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        transition: border-color 0.15s ease;
+        border: 1px solid transparent;
+      }
+      .comp-metric:hover { border-color: var(--border-hover); }
+      .comp-val {
+        font-family: var(--font-dot);
+        font-weight: 700;
+        font-variation-settings: 'ROND' 100;
+        font-size: 20px;
+        font-variant-numeric: tabular-nums;
+      }
+      .comp-val .mono { color: var(--text-faint); }
+      .comp-badge {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--text);
+      }
+      .comp-badge.up { color: var(--text); }
+      .comp-badge.down { color: var(--accent-text); }
+    </style>
+  </body>
+</html>

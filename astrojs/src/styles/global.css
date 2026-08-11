@@ -1,0 +1,1420 @@
+/* ─── Google Health Dashboard — Nothing OS ──────────────────────────────────
+   Strict monochrome: pure black background with dot grid, white numbers
+   in the Doto font, single accent — red (heart only).
+   Labels — caps monospace with letter-spacing, chrome — neutral graphite. */
+
+:root {
+  /* Native controls (date/datetime-local pickers) in dark theme —
+     previously color-scheme was only set on #gh-date-input. */
+  color-scheme: dark;
+  --bg: #000000;
+  --panel: #000000;
+  --panel-2: #0e0e0e;           /* insets, tracks, hover */
+  --border: #1f1f1f;
+  --border-hover: #383838;
+  --text: #f2f2f2;
+  --text-dim: #9a9a9a;
+  --text-faint: #767676;
+
+  /* Semantics reduced to monochrome + red.
+     Red — only heart (HR, resting HR, peak zone, errors).
+     --accent-text is lighter: for small text on #000 (WCAG AA ≥ 4.5:1). */
+  --accent: #d71921;
+  --accent-text: #ff4d54;
+  --coral: #d71921;   /* HR */
+  --sky: #f2f2f2;     /* SpO₂ */
+  --teal: #c4c4c4;    /* HRV */
+  --mint: #9a9a9a;    /* respiration */
+  --amber: #d4d4d4;   /* temperature, warnings */
+  --pink: #d71921;    /* resting HR */
+  --green: #f2f2f2;   /* activity */
+  --violet: #b3b3b3;  /* sleep */
+  --red: #d71921;
+
+  --radius: 4px;
+  --font-dot: 'Doto Variable', 'IBM Plex Mono', ui-monospace, monospace;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+/* Author display (flex/grid on modals and cards) must not override
+   the hidden attribute — otherwise hidden blocks appear above the interface. */
+[hidden] { display: none !important; }
+
+/* Screen-reader-only text: removed from the visual layout but kept in the
+   accessibility tree. Used for textual chart summaries (canvas charts are
+   invisible to screen readers) and descriptive labelling. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Nothing OS dot matrix: visible but not intrusive grid. */
+body {
+  background-image: radial-gradient(#222222 1px, transparent 1.4px);
+  background-size: 20px 20px;
+}
+
+::selection { background: var(--text); color: #000; }
+
+:focus-visible { outline: 1px solid var(--text-dim); outline-offset: 2px; }
+
+/* ─── Base elements ─────────────────────────────────────────────────────── */
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: border-color 0.15s ease;
+}
+.panel:hover { border-color: var(--border-hover); }
+
+.label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.dim { color: var(--text-dim); }
+.faint { color: var(--text-faint); }
+
+.wrap {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 16px 20px 40px;
+}
+
+/* ─── Top bar ───────────────────────────────────────────────────────── */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+/* Header inner container mirrors the content axis (.wrap, 1440px) so that on
+   wide screens controls don't spread to the edges, detached from the grid. */
+.topbar-inner {
+  max-width: 1440px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 20px;
+}
+
+.topbar-left, .topbar-center, .topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--text-dim);
+}
+.live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 2.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+.topbar-name {
+  /* Previously Space Grotesk — the font loaded on all 5 pages for a single
+     element; mono-600 fits the system and removes ~22 KB woff2. */
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.topbar-device {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+}
+
+.tb-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.tb-btn:hover { background: var(--text); color: #000; }
+.tb-btn:disabled { opacity: 0.3; cursor: default; background: transparent; color: var(--text-dim); }
+
+.tb-date {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 190px;
+  justify-content: center;
+  position: relative;
+}
+#gh-date-label {
+  font-family: var(--font-dot);
+  font-weight: 700;
+  font-variation-settings: 'ROND' 100;
+  font-size: 16px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+/* Native input is hidden but in tab order: show focus on the visible label. */
+.tb-date:has(#gh-date-input:focus-visible) #gh-date-label {
+  outline: 1px solid var(--text-dim);
+  outline-offset: 3px;
+}
+/* The native date input is visually hidden: the date is shown by a large Doto label,
+   the picker opens on click (TopBar calls showPicker). The input remains
+   in DOM for keyboard and screen readers but does not duplicate the date next to the label. */
+#gh-date-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  color-scheme: dark;
+}
+
+/* Date navigation (‹ date ›) — without explicit flex the buttons and date would
+   stack vertically; on mobile topbar this is part of the scrollable second row. */
+.date-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.conn-error {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--red);
+}
+
+.autorefresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+.autorefresh input { accent-color: var(--green); }
+
+/* ─── Vitals strip ─────────────────────────────────────────── */
+
+.vitals {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  margin: 16px 0;
+  overflow: hidden;
+}
+
+.vital {
+  position: relative;
+  padding: 18px 20px 14px;
+  border-left: 1px solid var(--border);
+  min-height: 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.vital:first-child { border-left: none; }
+.vital { transition: background 0.2s ease; }
+.vital:hover { background: rgba(242, 242, 242, 0.025); }
+.vital:hover .vital-label { color: var(--text); }
+
+.vital-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.vital-num {
+  font-family: var(--font-dot);
+  font-weight: 700;
+  font-variation-settings: 'ROND' 100;
+  font-size: 52px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.vital-num.empty { color: var(--text-faint); font-size: 36px; }
+.vital-unit {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.vital-spark { margin-top: auto; width: 100%; height: 26px; display: block; }
+/* sparkline draw animation on appear */
+.vital-spark path[stroke] {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: spark-draw 0.9s ease-out forwards;
+}
+@keyframes spark-draw { to { stroke-dashoffset: 0; } }
+.vital-delta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  min-height: 15px;
+}
+.vital-delta.up { color: var(--green); }
+.vital-delta.down { color: var(--coral); }
+
+.v-hr .vital-num { color: var(--coral); }
+.v-hrv .vital-num { color: var(--teal); }
+.v-spo2 .vital-num { color: var(--sky); }
+.v-resp .vital-num { color: var(--mint); }
+.v-temp .vital-num { color: var(--amber); }
+.v-rhr .vital-num { color: var(--pink); }
+
+/* ─── Day timeline (24 h) ────────────────────────────────────────────── */
+
+.timeline { margin-bottom: 12px; padding: 14px 18px 12px; }
+
+/* Track container: SVG geometry (stretches) + HTML overlays (percentages). */
+.tl-chart { position: relative; height: 132px; margin-top: 6px; }
+.tl-chart svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.tl-grid { stroke: var(--border); opacity: 0.55; }
+.tl-hr-area { fill: var(--accent); opacity: 0.07; }
+.tl-hr-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.tl-sleep { fill: var(--violet); opacity: 0.5; transition: opacity 0.15s ease; }
+.tl-sleep:hover { opacity: 0.9; }
+.tl-ex { fill: var(--text); opacity: 0.8; transition: opacity 0.15s ease; }
+.tl-ex:hover { opacity: 1; }
+
+/* Events track: water ticks, meal letters, ECG diamonds. */
+.tl-tick {
+  position: absolute;
+  top: 116px;
+  height: 14px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--text-faint);
+}
+.tl-meal {
+  position: absolute;
+  top: 116px;
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  color: var(--text-dim);
+}
+.tl-ecg {
+  position: absolute;
+  top: 119px;
+  width: 7px;
+  height: 7px;
+  margin-left: -3.5px;
+  background: var(--accent);
+  transform: rotate(45deg);
+}
+
+/* "Now" line — for today; dot pulses like LIVE. */
+.tl-now {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--text-dim);
+  pointer-events: none;
+}
+.tl-now::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -2.5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text);
+  animation: pulse 2.4s ease-in-out infinite;
+}
+
+.tl-axis { position: relative; height: 16px; margin-top: 4px; }
+.tl-axis span {
+  position: absolute;
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+}
+.tl-axis span:first-child { transform: none; }
+.tl-axis span:last-child { transform: translateX(-100%); }
+
+.tl-legend {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+.tl-legend i { display: inline-block; vertical-align: middle; margin-right: 5px; }
+.tl-sw-sleep { width: 10px; height: 6px; border-radius: 2px; background: var(--violet); opacity: 0.6; }
+.tl-sw-ex { width: 10px; height: 6px; border-radius: 2px; background: var(--text); }
+.tl-sw-hr { width: 12px; border-top: 2px solid var(--accent); }
+.tl-sw-water { width: 2px; height: 10px; background: var(--text-faint); }
+.tl-sw-meal { margin-right: 4px; font-size: 10px; font-weight: 600; color: var(--text-dim); }
+.tl-sw-ecg { width: 6px; height: 6px; background: var(--accent); transform: rotate(45deg); }
+
+/* ─── Bento grid ──────────────────────────────────────────────────────────── */
+
+.bento {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 12px;
+}
+.b-activity { grid-column: span 5; }
+.b-heart { grid-column: span 7; }
+.b-sleep { grid-column: span 7; }
+.b-body { grid-column: span 5; }
+.b-exercise { grid-column: span 8; }
+.b-misc { grid-column: span 4; }
+
+.card {
+  padding: 16px 18px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 120px;
+}
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.card-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+/* Toggles — nothing segments: sharp corners, active = inversion.
+   .card[hidden] here previously duplicated the global [hidden] — removed. */
+.range-toggle {
+  display: inline-flex;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 0;
+}
+.range-toggle button {
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 5px 11px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.range-toggle button:last-child { border-right: none; }
+.range-toggle button:hover { color: var(--text); }
+.range-toggle button.on {
+  background: var(--text);
+  color: #000;
+}
+
+/* ─── Activity ───────────────────────────────────────────────────────────── */
+
+.activity-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 18px;
+  align-items: center;
+}
+.ring-wrap { position: relative; width: 160px; height: 160px; }
+.ring-wrap svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.ring-bg { fill: none; stroke: var(--panel-2); stroke-width: 10; }
+.ring-fg {
+  fill: none;
+  stroke: var(--green);
+  stroke-width: 10;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.8s ease;
+}
+.ring-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+.ring-num {
+  font-family: var(--font-dot);
+  font-weight: 700;
+  font-variation-settings: 'ROND' 100;
+  font-size: 34px;
+}
+/* Six digits ("123 456") don't fit inside the ring opening —
+   we shrink (ActivityCard sets the class when steps >= 100,000). */
+.ring-num.sm { font-size: 22px; }
+.ring-goal { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; color: var(--text-faint); }
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px 18px;
+}
+.stat-item .label { margin-bottom: 2px; display: block; }
+.stat-val {
+  font-family: var(--font-dot);
+  font-weight: 700;
+  font-variation-settings: 'ROND' 100;
+  font-size: 24px;
+  font-variant-numeric: tabular-nums;
+}
+.stat-val small {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  font-weight: 400;
+}
+
+.zones-bar {
+  display: flex;
+  height: 12px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--panel-2);
+}
+.zones-bar > div { transition: width 0.6s ease; }
+.zone-peak { background: var(--accent); }
+.zone-cardio { background: #8c8c8c; }
+.zone-fatburn { background: #4d4d4d; }
+.zone-out { background: #2b2b2b; }
+.zone-light { background: #4d4d4d; }
+.zone-moderate { background: #8c8c8c; }
+.zone-vigorous { background: #c4c4c4; }
+
+/* Activity levels (STILL→RUNNING): gray scale "darker = less movement". */
+.lv-still { background: #2b2b2b; }
+.lv-sedentary { background: #383838; }
+.lv-low { background: #4d4d4d; }
+.lv-walking { background: #6d6d6d; }
+.lv-moderate { background: #8c8c8c; }
+.lv-high { background: #c4c4c4; }
+.lv-running { background: var(--text); }
+.zones-legend {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.zones-legend i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  margin-right: 5px;
+}
+
+.sedentary-warn {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--text-dim);
+  border-radius: 2px;
+  padding: 6px 10px;
+}
+
+/* ─── Heart ───────────────────────────────────────────────────────────────── */
+
+.chart { width: 100%; }
+.chart-hr-intraday { height: 220px; }
+/* 96px instead of 120: auxiliary mini-trends (HRV/SpO₂/RHR) are readable at
+   a shorter height, and the "Heart" card gets closer to its bento neighbors. */
+.chart-trend { height: 96px; }
+.chart-hypno { height: 200px; }
+.chart-mini { height: 96px; }
+
+.trend-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.trend-box .label { display: block; margin-bottom: 4px; }
+
+/* "Averages" mode: large Doto numbers instead of intraday chart */
+.hr-avg-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  min-height: 220px;
+  align-content: center;
+}
+.hr-avg-cell {
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 14px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 0.15s ease;
+}
+.hr-avg-cell:hover { border-color: var(--border-hover); }
+.hr-avg-num {
+  font-family: var(--font-dot);
+  font-weight: 700;
+  font-variation-settings: 'ROND' 100;
+  font-size: 40px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.hr-avg-cell.hr-main { border-color: var(--accent); }
+.hr-avg-cell.hr-main .hr-avg-num { color: var(--accent); }
+
+.irn-note {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 2px;
+  padding: 6px 10px;
+}
+
+/* Readiness: dot indicator + mono line */
+.readiness {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.readiness-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  flex: none;
+}
+.readiness[data-level="HIGH"] .readiness-dot { background: var(--text); box-shadow: 0 0 8px rgba(242, 242, 242, 0.5); }
+.readiness[data-level="MODERATE"] .readiness-dot { background: var(--text-dim); }
+.readiness[data-level="LOW"] .readiness-dot { background: var(--accent); box-shadow: 0 0 8px rgba(215, 25, 33, 0.55); }
+.readiness b {
+  color: var(--text);
+  font-weight: 500;
+  letter-spacing: 0.12em;
+}
+.readiness[data-level="LOW"] b { color: var(--accent-text); }
+
+/* ─── Sleep ──────────────────────────────────────────────────────────────────── */
+
+.sleep-head {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.sleep-total {
+  font-family: var(--font-dot);
+  font-weight: 700;
+  font-variation-settings: 'ROND' 100;
+  font-size: 36px;
+  color: var(--violet);
+}
+.sleep-unit {
+  font-family: var(--font-mono);
+  font-size: 0.42em;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+.sleep-range { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); }
+
+.phase-bars { display: flex; flex-direction: column; gap: 6px; }
+.phase-row {
+  display: grid;
+  /* Right column auto + nowrap: "1 h 20 min · 23%" in mono 11px is wider
+     than fixed 84px and without this would wrap to two lines. */
+  grid-template-columns: 92px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.phase-track {
+  height: 8px;
+  background: var(--panel-2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.phase-fill { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
+.ph-awake { background: var(--text-faint); }
+.ph-rem { background: var(--violet); }
+.ph-light { background: color-mix(in srgb, var(--violet) 55%, var(--panel-2)); }
+.ph-deep { background: var(--sky); }
+
+.sleep-extras {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.sleep-extras b { color: var(--text); font-weight: 500; }
+
+.sleep-metrics {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.metric-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.metric-label { color: var(--text-dim); }
+.metric-value { font-weight: 600; font-size: 14px; }
+.metric-tag {
+  color: #000;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.metric-range { font-size: 10px; margin-left: 2px; }
+.stage-pcts {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.stage-pct {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel-2);
+}
+.stage-pct i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+/* ─── Body ─────────────────────────────────────────────────────────────────── */
+
+.body-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.body-tile {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px 6px;
+}
+.body-tile .label { display: block; margin-bottom: 4px; }
+.body-val {
+  font-family: var(--font-dot);
+  font-weight: 700;
+  font-variation-settings: 'ROND' 100;
+  font-size: 24px;
+  font-variant-numeric: tabular-nums;
+}
+.body-val small {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  font-weight: 400;
+}
+.body-trend { color: var(--text-faint); font-size: 11px; margin-left: 6px; }
+.body-trend.up { color: var(--green); }
+.body-trend.down { color: var(--coral); }
+
+.body-tile-wide { grid-column: 1 / -1; }
+.weight-log {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.weight-log-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.weight-log-row b {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* ─── Exercises ───────────────────────────────────────────────────────────── */
+
+.ex-list { display: flex; flex-direction: column; gap: 10px; }
+.ex-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 14px;
+  align-items: center;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+.ex-icon {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 2px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+}
+.ex-card:hover .ex-icon { color: var(--text); border-color: var(--border-hover); }
+.ex-name { font-family: var(--font-mono); font-size: 12px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; }
+.ex-time { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); }
+.ex-metrics {
+  display: flex;
+  gap: 16px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.ex-metrics b { color: var(--text); font-weight: 500; }
+
+/* Exercise TCX export: mono chip, inversion on hover (like toggles). */
+.tcx-link {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 2px 7px;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.tcx-link:hover { background: var(--text); color: #000; border-color: var(--text); }
+
+/* ─── Misc ───────────────────────────────────────────────────────────────── */
+
+.misc-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.misc-tile {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+.misc-tile .label { display: block; margin-bottom: 4px; }
+.misc-val {
+  font-family: var(--font-dot);
+  font-weight: 700;
+  font-variation-settings: 'ROND' 100;
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.misc-val small {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  font-weight: 400;
+}
+
+.misc-tile-wide { grid-column: 1 / -1; }
+
+/* Last ECG record: result and time below the counter. */
+.ecg-last {
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.food-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: 2px 0;
+}
+.food-row span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ─── Devices (footer) ───────────────────────────────────────────────────── */
+
+.devices {
+  margin-top: 12px;
+  padding: 12px 18px;
+  display: flex;
+  gap: 26px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.device-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.device-name { font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; }
+.device-sync { font-family: var(--font-mono); font-size: 10px; color: var(--text-faint); }
+
+/* ─── States: skeleton, error, reveal, flash ──────────────────────────── */
+
+.skel {
+  display: block;
+  background: var(--panel-2);
+  border-radius: 4px;
+  animation: skel-pulse 1.4s ease-in-out infinite;
+}
+@keyframes skel-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 0.3; }
+}
+
+.card-error {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--red);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.retry-btn {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+.retry-btn:hover { background: var(--border); }
+
+.reveal {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.reveal.on {
+  opacity: 1;
+  transform: none;
+  transition: opacity 0.4s ease, transform 0.4s ease;
+  transition-delay: calc(var(--i, 0) * 50ms);
+}
+
+.flash { animation: value-flash 0.9s ease; }
+@keyframes value-flash {
+  0% { background: color-mix(in srgb, var(--green) 22%, transparent); }
+  100% { background: transparent; }
+}
+
+.empty-note {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+/* ─── Trends page ─────────────────────────────────────────────────────── */
+
+.trends-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 16px 0 12px;
+}
+
+.summary-strip {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+.sum-cell {
+  padding: 14px 20px 12px;
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.sum-cell:first-child { border-left: none; }
+.sum-num {
+  font-family: var(--font-dot);
+  font-weight: 700;
+  font-variation-settings: 'ROND' 100;
+  font-size: 38px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.s-rhr .sum-num { color: var(--pink); }
+.s-hrv .sum-num { color: var(--teal); }
+.s-spo2 .sum-num { color: var(--sky); }
+.s-steps .sum-num { color: var(--green); }
+.s-sleep .sum-num { color: var(--violet); }
+.s-ex .sum-num { color: var(--amber); }
+
+.b-trio { grid-column: span 4; }
+.b-full { grid-column: span 12; margin-bottom: 12px; }
+.chart-sleep-trend { height: 250px; }
+.chart-steps-trend { height: 250px; }
+.chart-trio { height: 130px; }
+.chart-load { height: 210px; }
+.chart-weight { height: 170px; }
+.chart-sleep-hr { height: 90px; margin-top: -6px; }
+.chart-nd { height: 150px; }
+
+/* ─── Steps heatmap ────────────────────────────────────────────────────────── */
+
+.heatmap {
+  display: grid;
+  grid-template-rows: repeat(7, 12px);
+  grid-auto-flow: column;
+  grid-auto-columns: 12px;
+  gap: 3px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.hm-cell {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  display: inline-block;
+}
+.hm-pad { visibility: hidden; }
+.hm-l0 { background: var(--panel-2); outline: 1px solid var(--border); outline-offset: -1px; }
+.hm-l1 { background: #2b2b2b; }
+/* .hm-l2 is overridden below in the common gray scale (#5c5c5c). */
+.hm-l3 { background: #9a9a9a; }
+.hm-l4 { background: var(--text); }
+.hm-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-faint);
+}
+.hm-legend .hm-cell { margin: 0 1px; }
+
+/* Hint that the heat-map is scrollable. Shown by JS (paintHeatmap)
+   only when the strip actually overflows; hidden by default. */
+.heatmap-hint {
+  display: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--text-faint);
+  margin-top: 6px;
+}
+
+/* ─── Summary strip deltas, streaks, rhythm ─────────────────────────────────── */
+
+.sum-delta {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  min-height: 13px;
+}
+.sum-delta .up { color: var(--green); }
+.sum-delta .down { color: var(--coral); }
+
+.streak-note, .rhythm-note {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.streak-note b, .rhythm-note b { color: var(--text); font-weight: 500; }
+
+/* ─── HRV night/day ────────────────────────────────────────────────────────── */
+
+.nd-nums {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.nd-big {
+  font-family: var(--font-dot);
+  font-weight: 700;
+  font-variation-settings: 'ROND' 100;
+  font-size: 34px;
+  color: var(--teal);
+}
+.nd-mid {
+  font-family: var(--font-dot);
+  font-weight: 700;
+  font-variation-settings: 'ROND' 100;
+  font-size: 22px;
+  color: var(--text-dim);
+}
+.nd-sep { color: var(--text-faint); }
+.nd-ratio {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--teal);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 7px;
+  margin-left: 4px;
+}
+
+/* ─── Records ──────────────────────────────────────────────────────────────── */
+
+.rec-list { display: flex; flex-direction: column; gap: 8px; }
+.rec-row {
+  display: grid;
+  grid-template-columns: auto 70px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 9px 14px;
+}
+.rec-icon {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 3px 6px;
+}
+.rec-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.rec-date { font-size: 11px; }
+
+/* ─── Desaturation, HR recovery ─────────────────────────────────────── */
+
+.desat-note {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 6px;
+}
+.desat-note b { color: var(--text); font-weight: 500; }
+.desat-note.warn {
+  color: var(--text);
+  border-left: 3px solid var(--text);
+  padding-left: 8px;
+}
+.desat-note.warn b { color: var(--text); }
+
+.hrr { color: var(--mint); }
+.hrr b { color: var(--mint); font-weight: 500; }
+
+/* ─── Responsive ──────────────────────────────────────────────────────────────── */
+
+@media (max-width: 1180px) {
+  .b-activity, .b-heart, .b-sleep, .b-body, .b-exercise, .b-misc, .b-trio {
+    grid-column: span 12;
+  }
+}
+@media (max-width: 900px) {
+  .vitals, .summary-strip { grid-template-columns: repeat(3, 1fr); }
+  .vital, .sum-cell { border-top: 1px solid var(--border); }
+  .vital:nth-child(3n+1), .sum-cell:nth-child(3n+1) { border-left: none; }
+  .vital:nth-child(-n+3), .sum-cell:nth-child(-n+3) { border-top: none; }
+  .vital-num { font-size: 38px; }
+
+  /* Topbar doesn't fit in one row even on tablet — we stack:
+     row 1) logo + actions, row 2) tabs (horizontal scroll),
+     row 3) date navigation centered. Previously the date was hidden in
+     an invisible scroll next to tabs and was hard to find. */
+  .topbar-inner { flex-wrap: wrap; padding: 8px 12px; gap: 8px 12px; }
+  .topbar-device { display: none; }
+  .topbar-center {
+    order: 3;
+    flex-basis: 100%;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .view-switch {
+    flex-basis: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .view-switch::-webkit-scrollbar { display: none; }
+  .date-nav { flex-basis: 100%; justify-content: center; }
+  .tb-date { min-width: 0; }
+  .topbar-right { margin-left: auto; }
+  /* Touch targets closer to 40px. */
+  .tb-btn { width: 40px; height: 40px; }
+  .range-toggle button { padding: 9px 11px; }
+}
+@media (max-width: 620px) {
+  .vitals, .summary-strip { grid-template-columns: repeat(2, 1fr); }
+  .vital:nth-child(3n+1), .sum-cell:nth-child(3n+1) { border-left: 1px solid var(--border); }
+  .vital:nth-child(2n+1), .sum-cell:nth-child(2n+1) { border-left: none; }
+  .vital:nth-child(-n+3), .sum-cell:nth-child(-n+3) { border-top: 1px solid var(--border); }
+  .vital:nth-child(-n+2), .sum-cell:nth-child(-n+2) { border-top: none; }
+  /* Vitals on phone: denser, smaller numbers, shorter sparkline. */
+  .vital { padding: 12px 14px 10px; min-height: 104px; }
+  .vital-num { font-size: 30px; }
+  .vital-num.empty { font-size: 22px; }
+  .vital-spark { height: 20px; }
+  /* stat-grid stays in 2 columns down to ~400px (6 items stacked would make
+     the Activity card very tall); trend-pair/body-grid — single column. */
+  .trend-pair, .body-grid { grid-template-columns: 1fr; }
+  .activity-grid { grid-template-columns: 1fr; justify-items: center; }
+  /* Shorter charts — so more content fits on a phone screen. */
+  .chart-hr-intraday { height: 180px; }
+  .chart-hypno { height: 170px; }
+  .chart-sleep-trend, .chart-steps-trend { height: 200px; }
+  .chart-load { height: 180px; }
+}
+
+/* ─── Nothing OS: contrast tweaks, mono numbers, mobile layout ─────────── */
+
+/* Red as small text — lighter than the WCAG AA threshold on black. */
+.conn-error, .card-error, .irn-note { color: var(--accent-text); }
+
+/* An empty value in Doto is drawn as dotted circles — it looks like
+   a broken render. We show emptiness with a monospace dash, subdued,
+   removing the accent color (red HR/resting HR) so it doesn't alarm.
+   Prefixes .vital / .sum-cell give specificity (0,3,0) to reliably
+   override colored rules .v-hr .vital-num / .s-rhr .sum-num (0,2,0)
+   regardless of block order — otherwise empty numbers stayed colored/dotted. */
+.vital .vital-num.empty,
+.sum-cell .sum-num.empty,
+.stat-val.empty,
+.hr-avg-num.empty,
+.body-val.empty,
+.misc-val.empty,
+.sleep-total.empty,
+.nd-big.empty {
+  font-family: var(--font-mono);
+  font-variation-settings: normal;
+  color: var(--text-faint);
+}
+/* Main average HR cell: .hr-avg-cell.hr-main .hr-avg-num = (0,3,0),
+   so the empty dash requires (0,4,0), otherwise it stays red. */
+.hr-avg-cell.hr-main .hr-avg-num.empty { color: var(--text-faint); }
+
+/* Calm connection error block: neutral border + pulse dot, raw
+   message lives in title for diagnostics. Not screaming red. */
+.card-empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--text-faint);
+  border-radius: 2px;
+  padding: 10px 12px;
+}
+.card-empty-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  flex: none;
+  animation: pulse 2.4s ease-in-out infinite;
+}
+.card-empty .retry-btn { margin-left: auto; }
+
+/* Records: values contain Cyrillic (h/min/km) → mono, no font jumps. */
+.rec-val {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* Heatmap: middle level — into the common gray scale. */
+.hm-l2 { background: #5c5c5c; }
+
+@media (max-width: 900px) {
+  .hr-avg-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 620px) {
+  .wrap { padding: 12px 12px 32px; }
+  /* Card title with toggles — stacked on narrow screens. */
+  .card-head { flex-wrap: wrap; }
+  .hr-controls { width: 100%; justify-content: space-between; }
+  /* Trend summary numbers — adaptive size so they don't overlap the neighbor. */
+  .sum-num { font-size: clamp(22px, 7vw, 38px); }
+  /* Exercise: metrics wrap and go to their own line. */
+  .ex-metrics { flex-wrap: wrap; row-gap: 4px; }
+  .ex-card { grid-template-columns: auto 1fr; }
+  .ex-card .ex-metrics { grid-column: 1 / -1; }
+  /* iOS Safari zooms inputs < 16px — we remove auto-zoom. !important is needed:
+     component scoped selectors (input[data-astro-cid-…]) otherwise always
+     beat the global rule, and zoom returned on every field.
+     Compact topbar date input — exception: native picker doesn't zoom on
+     tap, and bloated 16px breaks the tight date navigation row. */
+  input, select, textarea { font-size: 16px !important; }
+  #gh-date-input { font-size: 11px !important; }
+}
+
+@media (max-width: 480px) {
+  /* First topbar row is dense — we remove the LIVE label, dot is not needed. */
+  .live { display: none; }
+  /* Sleep stages: narrow fixed columns eat the track at 320px — we compress. */
+  .phase-row { grid-template-columns: 72px 1fr auto; gap: 8px; font-size: 10px; }
+}
+
+@media (max-width: 420px) {
+  /* Records: label below value so a long token doesn't break the line. */
+  .rec-row {
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas: 'icon val date' 'icon label date';
+    row-gap: 2px;
+  }
+  .rec-icon { grid-area: icon; }
+  .rec-val { grid-area: val; }
+  .rec-label { grid-area: label; }
+  .rec-date { grid-area: date; }
+}
+
+@media (max-width: 380px) {
+  .vital-num { font-size: 26px; }
+  .ring-wrap { width: 140px; height: 140px; }
+  /* Smaller ring — number too, otherwise "12 345" hits the stroke. */
+  .ring-num { font-size: 28px; }
+}
+
+/* ─── Haptic feedback and reduced-motion ───────────────────────────────────── */
+
+/* On smartphones :hover doesn't fire; :active gives feedback on press. */
+.tb-btn:active,
+.range-toggle button:active { background: var(--text); color: #000; }
+.vital:active { background: rgba(242, 242, 242, 0.045); }
+.retry-btn:active { background: var(--border); }
+
+/* Respecting prefers-reduced-motion: minimum animations and transitions. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .reveal { opacity: 1 !important; transform: none !important; }
+  .vital-spark path[stroke] { animation: none; stroke-dashoffset: 0; }
+}

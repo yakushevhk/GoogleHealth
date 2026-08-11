@@ -1,0 +1,182 @@
+---
+/**
+ * Misc: hydration, nutrition, altitude, swimming, ECG records — compact
+ * tiles. Tiles without data are hidden; section hides if all empty.
+ */
+---
+
+<section class="panel card reveal b-misc" style="--i:6" id="misc-card" hidden>
+  <div class="card-head">
+    <span class="card-title" style="color:var(--sky)">Misc</span>
+  </div>
+  <div class="misc-grid" id="misc-grid"></div>
+</section>
+
+<script>
+  import { extractAggregates, firstNumber, toNumber } from '@lib/extract';
+  import { localOffsetMin } from '@lib/filters';
+  import type { DaySummary } from '@lib/gh-types';
+  import { getCurrentSummary, loadSummary, subscribeSummary } from '@lib/store';
+  import { $, esc, fetchJson, fmt, fmtTime, getDate, onDate, showError } from '@lib/ui';
+
+  interface Tile {
+    key: string;
+    label: string;
+    get: (s: DaySummary) => { value: string } | null;
+  }
+
+  const TILES: Tile[] = [
+    {
+      key: 'hydration',
+      label: 'Hydration',
+      get: (s) => {
+        // API v4 only stores the intake fact (time), volume is not recorded —
+        // rollup gives record count, not milliliters.
+        const n = extractAggregates(s.hydration_log).sum;
+        return n !== undefined ? { value: `${fmt(n)} <small>intakes</small>` } : null;
+      },
+    },
+    {
+      key: 'nutrition',
+      label: 'Nutrition',
+      get: (s) => {
+        // nutrition-log stores meal type and interval; rollup — record count.
+        const n =
+          extractAggregates(s.nutrition_log).sum ??
+          firstNumber(s.nutrition_log);
+        return n !== undefined ? { value: `${fmt(n)} <small>intakes</small>` } : null;
+      },
+    },
+    {
+      key: 'altitude',
+      label: 'Altitude',
+      get: (s) => {
+        const agg = extractAggregates(s.altitude);
+        if (agg.max === undefined && agg.avg === undefined) return null;
+        const v = agg.max ?? agg.avg!;
+        return { value: `${fmt(v)} <small>m</small>` };
+      },
+    },
+    {
+      key: 'swim',
+      label: 'Swimming',
+      get: (s) => {
+        // strokeCountSum — stroke count (not pool laps).
+        const n = toNumber(s.swim_lengths?.strokeCountSum);
+        return n !== null && n !== undefined ? { value: `${fmt(n)} <small>strokes</small>` } : null;
+      },
+    },
+  ];
+
+  const grid = $('#misc-grid')!;
+  let ecgHtml = '';
+  let foodHtml = '';
+
+  function render(s: DaySummary | null): void {
+    if (!s) return;
+    const tiles = TILES.map((t) => {
+      const v = t.get(s);
+      return v
+        ? `<div class="misc-tile"><span class="label">${t.label}</span><span class="misc-val">${v.value}</span></div>`
+        : '';
+    }).filter(Boolean);
+    const all = [...tiles];
+    if (foodHtml) all.push(foodHtml);
+    if (ecgHtml) all.push(ecgHtml);
+    $('#misc-card')!.hidden = all.length === 0;
+    grid.innerHTML = all.join('');
+  }
+
+  // ECG classification decode (Google Health: electrocardiogram.classification)
+  const ECG_RU: Record<string, string> = {
+    SINUS_RHYTHM: 'Sinus rhythm',
+    ATRIAL_FIBRILLATION: 'Atrial fibrillation',
+    INCONCLUSIVE: 'Inconclusive',
+  };
+
+  // ECG records — separate request (not part of summary). ECG API filter
+  // only supports >= (no upper bound), so for past dates
+  // all newer records also come — we clip by civil day (local
+  // timezone, like DayTimeline) on the client.
+  async function loadEcg(date: string): Promise<void> {
+    try {
+      const resp = await fetchJson<{
+        dataPoints?: {
+          interval?: { startTime?: string };
+          electrocardiogram?: { classification?: string };
+        }[];
+      }>(`/api/list?type=electrocardiogram&date=${date}&pageSize=100`);
+      const from = Date.parse(`${date}T00:00:00Z`) + localOffsetMin() * 60_000;
+      const to = from + 86_400_000;
+      const day = (resp.dataPoints ?? [])
+        .filter((p) => {
+          const t = Date.parse(p.interval?.startTime ?? '');
+          return !Number.isNaN(t) && t >= from && t < to;
+        })
+        .sort(
+          (a, b) =>
+            Date.parse(a.interval?.startTime ?? '') - Date.parse(b.interval?.startTime ?? ''),
+        );
+      if (day.length === 0) {
+        ecgHtml = '';
+        return;
+      }
+      const last = day[day.length - 1];
+      const cls = last.electrocardiogram?.classification ?? '';
+      const clsRu = ECG_RU[cls] ?? (cls ? cls.replaceAll('_', ' ').toLowerCase() : '');
+      const lastLine = clsRu
+        ? `<div class="ecg-last">${esc(clsRu)} · ${fmtTime(last.interval?.startTime)}</div>`
+        : '';
+      ecgHtml = `<div class="misc-tile"><span class="label">ECG</span><span class="misc-val">${fmt(day.length)} <small>records</small></span>${lastLine}</div>`;
+    } catch {
+      ecgHtml = '';
+    }
+  }
+
+  // Food: no timestamps in records — show last N from log
+  async function loadFood(): Promise<void> {
+    try {
+      const resp = await fetchJson<{
+        dataPoints?: { food?: { displayName?: string; brand?: string } }[];
+      }>('/api/list?type=food&date=2000-01-01&pageSize=3');
+      const foods = (resp.dataPoints ?? [])
+        .map((p) => p.food)
+        .filter((f): f is { displayName?: string; brand?: string } => Boolean(f?.displayName));
+      if (foods.length === 0) {
+        foodHtml = '';
+        return;
+      }
+      const clean = (s: string) => esc(s.replace(/^["']+|["']+$/g, ''));
+      foodHtml = `<div class="misc-tile misc-tile-wide">
+          <span class="label">Food · recent entries</span>
+          ${foods
+            .map(
+              (f) =>
+                `<div class="food-row"><span>${clean(f.displayName ?? '')}</span><span class="faint">${esc(f.brand ?? '')}</span></div>`,
+            )
+            .join('')}
+        </div>`;
+    } catch {
+      foodHtml = '';
+    }
+  }
+
+  let errored = false;
+  subscribeSummary((s, _prev, err) => {
+    if (err && !s) {
+      // After failed date switch store clears summary — we show
+      // error instead of stale tiles from previous day (like other cards).
+      $('#misc-card')!.hidden = false;
+      if (!errored) showError(grid, err, () => void loadSummary(getDate()));
+      errored = true;
+      return;
+    }
+    errored = false;
+    render(s);
+  });
+
+  onDate(async (date) => {
+    await Promise.all([loadEcg(date), loadFood()]);
+    render(getCurrentSummary());
+  });
+</script>

@@ -1,0 +1,204 @@
+---
+/**
+ * Vitals strip — patient monitor style:
+ * HR, HRV (RMSSD), SpO₂, respiratory rate, temperature, resting HR.
+ * Large numbers with count-up, sparklines, deltas to previous day,
+ * continuous ECG curve behind the HR cell.
+ */
+---
+
+<section class="vitals panel reveal" style="--i:0" id="vitals">
+  <div class="vital v-hr">
+    <div class="vital-label">HR</div>
+    <div class="vital-num empty" id="v-hr">—</div>
+    <div class="vital-unit">bpm · daily average</div>
+    <span class="skel vital-spark" id="v-hr-spark" style="height:26px"></span>
+    <div class="vital-delta" id="v-hr-delta"></div>
+  </div>
+  <div class="vital v-hrv">
+    <div class="vital-label">HRV · RMSSD</div>
+    <div class="vital-num empty" id="v-hrv">—</div>
+    <div class="vital-unit">ms</div>
+    <span class="skel vital-spark" id="v-hrv-spark" style="height:26px"></span>
+    <div class="vital-delta" id="v-hrv-delta"></div>
+  </div>
+  <div class="vital v-spo2">
+    <div class="vital-label">SpO₂</div>
+    <div class="vital-num empty" id="v-spo2">—</div>
+    <div class="vital-unit">% saturation</div>
+    <span class="skel vital-spark" id="v-spo2-spark" style="height:26px"></span>
+    <div class="vital-delta" id="v-spo2-delta"></div>
+  </div>
+  <div class="vital v-resp">
+    <div class="vital-label">Respiration</div>
+    <div class="vital-num empty" id="v-resp">—</div>
+    <div class="vital-unit">breaths/min</div>
+    <span class="skel vital-spark" id="v-resp-spark" style="height:26px"></span>
+    <div class="vital-delta" id="v-resp-delta"></div>
+  </div>
+  <div class="vital v-temp">
+    <div class="vital-label">Temperature</div>
+    <div class="vital-num empty" id="v-temp">—</div>
+    <div class="vital-unit">°C</div>
+    <span class="skel vital-spark" id="v-temp-spark" style="height:26px"></span>
+    <div class="vital-delta" id="v-temp-delta"></div>
+  </div>
+  <div class="vital v-rhr">
+    <div class="vital-label">Resting HR</div>
+    <div class="vital-num empty" id="v-rhr">—</div>
+    <div class="vital-unit">bpm</div>
+    <span class="skel vital-spark" id="v-rhr-spark" style="height:26px"></span>
+    <div class="vital-delta" id="v-rhr-delta"></div>
+  </div>
+</section>
+
+<script>
+  import { extractAggregates, sampleValue, toNumber } from '@lib/extract';
+  import { localOffsetMin } from '@lib/filters';
+  import type { DaySummary } from '@lib/gh-types';
+  import {
+    getCurrentSummary,
+    loadPrevDaySummary,
+    loadSummary,
+    subscribeSummary,
+  } from '@lib/store';
+  import {
+    $,
+    countUp,
+    deltaHtml,
+    fetchJson,
+    flash,
+    getDate,
+    onDate,
+    showError,
+    sparkline,
+  } from '@lib/ui';
+
+  const vitalsEl = $('#vitals')!;
+  // Markup backup: showError replaces innerHTML, and after
+  // data recovery the structure must be restored (render looks for #v-*).
+  const vitalsTemplate = vitalsEl.innerHTML;
+  let errored = false;
+
+  // ── Extracting values from summary ──
+  // extractAggregates/sampleValue, not firstNumber: daily fields start with
+  // a date object {year,...}, and firstNumber would return the year (2026) instead of the metric.
+  const pick = {
+    hr: (s: DaySummary) => toNumber(s.heart_rate?.beatsPerMinuteAvg) ?? null,
+    hrv: (s: DaySummary) =>
+      extractAggregates(s.heart_rate_variability).avg ?? sampleValue(s.hrv_sample) ?? null,
+    spo2: (s: DaySummary) =>
+      extractAggregates(s.oxygen_saturation).avg ?? toNumber(s.spo2_sample?.percentage) ?? null,
+    resp: (s: DaySummary) => extractAggregates(s.respiratory_rate).avg ?? null,
+    temp: (s: DaySummary) => extractAggregates(s.core_body_temperature).avg ?? null,
+    rhr: (s: DaySummary) => toNumber(s.resting_heart_rate?.beatsPerMinute) ?? null,
+  } satisfies Record<string, (s: DaySummary) => number | null>;
+
+  type VitalKey = keyof typeof pick;
+
+  // Nothing palette: red — only heart (HR, resting HR), everything else — gray
+  const COLORS: Record<VitalKey, string> = {
+    hr: '#d71921',
+    hrv: '#c4c4c4',
+    spo2: '#f2f2f2',
+    resp: '#9a9a9a',
+    temp: '#d4d4d4',
+    rhr: '#d71921',
+  };
+  const DIGITS: Record<VitalKey, number> = {
+    hr: 0, hrv: 0, spo2: 0, resp: 0, temp: 1, rhr: 0,
+  };
+
+  // ── Render values + deltas ──
+  let prevDay: DaySummary | null = null;
+  let lastValues: Partial<Record<VitalKey, number | null>> = {};
+
+  function render(s: DaySummary | null, prev: DaySummary | null): void {
+    for (const key of Object.keys(pick) as VitalKey[]) {
+      const el = $(`#v-${key}`)!;
+      const val = s ? pick[key](s) : null;
+      countUp(el, val, { digits: DIGITS[key] });
+      // Diff highlight on auto-refresh
+      if (
+        prev &&
+        lastValues[key] !== undefined &&
+        val !== lastValues[key] &&
+        val !== null
+      ) {
+        flash(el);
+      }
+      lastValues[key] = val;
+      // Delta to previous day
+      const deltaEl = $(`#v-${key}-delta`)!;
+      const prevVal = prevDay ? pick[key](prevDay) : null;
+      deltaEl.innerHTML = deltaHtml(val, prevVal, { goodDown: key === 'rhr' });
+    }
+  }
+
+  subscribeSummary((s, prev, err) => {
+    // Previously a summary error silently drew six "—"; now we show
+    // a connection block with retry, like other cards.
+    if (err && !s) {
+      if (!errored) showError(vitalsEl, err, () => void loadSummary(getDate()));
+      errored = true;
+      return;
+    }
+    if (errored) {
+      // showError replaced the markup — we restore the structure, otherwise render
+      // won't find #v-*; sparklines are reloaded for the current date.
+      vitalsEl.innerHTML = vitalsTemplate;
+      loadAllSparks(getDate());
+    }
+    errored = false;
+    render(s, prev);
+  });
+
+  // ── Sparklines: per date ──
+  interface SeriesResp {
+    points: { date?: string; time?: string; avg?: number; sum?: number }[];
+  }
+
+  async function loadSpark(
+    key: VitalKey,
+    url: string,
+    field: 'avg' | 'sum',
+  ): Promise<void> {
+    const host = $(`#v-${key}-spark`);
+    const fallback = `<span class="vital-spark" id="v-${key}-spark"></span>`;
+    if (!host) return;
+    try {
+      const resp = await fetchJson<SeriesResp>(url);
+      // While waiting for response, host could leave the DOM (showError/recovery) —
+      // outerHTML on a disconnected node throws an exception.
+      if (!host.isConnected) return;
+      const values = resp.points.map((p) => p[field] ?? null);
+      host.outerHTML = sparkline(values, { color: COLORS[key], id: `v-${key}-spark` }) || fallback;
+    } catch {
+      if (host.isConnected) host.outerHTML = fallback;
+    }
+  }
+
+  function loadAllSparks(date: string): void {
+    // offsetMin — same as other intraday calls: buckets from local
+    // midnight, not UTC (otherwise HR sparkline is shifted by 3 hours).
+    const off = localOffsetMin();
+    void loadSpark('hr', `/api/intraday?type=heart-rate&date=${date}&offsetMin=${off}`, 'avg');
+    void loadSpark('hrv', `/api/history?type=daily-heart-rate-variability&days=30&date=${date}`, 'avg');
+    void loadSpark('spo2', `/api/history?type=daily-oxygen-saturation&days=30&date=${date}`, 'avg');
+    void loadSpark('resp', `/api/history?type=daily-respiratory-rate&days=30&date=${date}`, 'avg');
+    void loadSpark('temp', `/api/intraday?type=core-body-temperature&date=${date}&offsetMin=${off}`, 'avg');
+    void loadSpark('rhr', `/api/history?type=daily-resting-heart-rate&days=30&date=${date}`, 'avg');
+  }
+
+  onDate((date) => {
+    // Deltas: summary for previous day
+    void loadPrevDaySummary(date).then((s) => {
+      prevDay = s;
+      // In error state markup is replaced by showError — #v-* don't exist,
+      // render() would crash on null. Data will be accounted for on recovery.
+      if (errored) return;
+      render(getCurrentSummary(), null);
+    });
+    loadAllSparks(date);
+  });
+</script>

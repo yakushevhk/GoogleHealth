@@ -1,0 +1,277 @@
+---
+/**
+ * Day timeline: 24-hour strip in the spirit of a patient monitor.
+ * Layers: HR curve (intraday, 10-min windows), sleep and exercise segments
+ * from summary, water/food/ECG marks. Hand-drawn SVG: viewBox 1440×132 —
+ * one X unit = one minute of day; preserveAspectRatio="none"
+ * stretches the geometry, so text and thin markers are HTML overlays
+ * (they are positioned by percentages and don't get distorted).
+ */
+---
+
+<!-- Not hidden: before first load we show a skeleton (otherwise the card
+     "jumps out" with layout shift); when data is absent render() hides it. -->
+<section class="panel timeline reveal" style="--i:1" id="timeline">
+  <div class="card-head">
+    <span class="card-title" style="color:var(--text)">Day Timeline</span>
+  </div>
+  <div class="tl-chart" id="tl-chart">
+    <span class="skel" style="height:100%"></span>
+  </div>
+  <div class="tl-axis" aria-hidden="true">
+    <span style="left:0%">00</span>
+    <span style="left:12.5%">03</span>
+    <span style="left:25%">06</span>
+    <span style="left:37.5%">09</span>
+    <span style="left:50%">12</span>
+    <span style="left:62.5%">15</span>
+    <span style="left:75%">18</span>
+    <span style="left:87.5%">21</span>
+    <span style="left:100%">24</span>
+  </div>
+  <div class="tl-legend">
+    <span><i class="tl-sw-sleep"></i>Sleep</span>
+    <span><i class="tl-sw-ex"></i>Exercise</span>
+    <span><i class="tl-sw-hr"></i>HR</span>
+    <span><i class="tl-sw-water"></i>Water</span>
+    <span><i class="tl-sw-meal">B</i>Food · B/L/D/S</span>
+    <span><i class="tl-sw-ecg"></i>ECG</span>
+  </div>
+</section>
+
+<script>
+  import { localOffsetMin, todayLocal } from '@lib/filters';
+  import type { DaySummary } from '@lib/gh-types';
+  import { clipToDay, minuteOfDay } from '@lib/stats';
+  import { subscribeSummary } from '@lib/store';
+  import { $, esc, fetchJson, fmtDuration, fmtTime, onDate } from '@lib/ui';
+
+  // Track geometry (viewBox units: X — minutes of day, Y — pixels)
+  const SLEEP_Y = 4;
+  const SLEEP_H = 10;
+  const EX_Y = 18;
+  const EX_H = 10;
+  const HR_TOP = 34;
+  const HR_BOT = 112;
+  const DAY_MIN = 1440;
+  const VIEW_H = 132;
+
+  interface HrPt { m: number; v: number }
+  interface Tick { m: number; t: string }
+  interface MealMark extends Tick { letter: string; name: string }
+  interface EcgMark extends Tick { cls: string }
+
+  const MEALS: Record<string, [string, string]> = {
+    BREAKFAST: ['B', 'Breakfast'],
+    LUNCH: ['L', 'Lunch'],
+    DINNER: ['D', 'Dinner'],
+    SNACK: ['S', 'Snack'],
+  };
+
+  const section = $('#timeline')!;
+  const chart = $('#tl-chart')!;
+
+  let curDate = '';
+  let summary: DaySummary | null = null;
+  let hrPts: HrPt[] = [];
+  let hydration: Tick[] = [];
+  let meals: MealMark[] = [];
+  let ecgs: EcgMark[] = [];
+  let eventsLoaded = false;
+  /** Request generation: fast "‹ ‹" must not draw old response over new date. */
+  let gen = 0;
+
+  /** Local midnight of the day in UTC-ms (formula /api/intraday: +offsetMin). */
+  const dayStartMs = (): number =>
+    Date.parse(`${curDate}T00:00:00Z`) + localOffsetMin() * 60_000;
+
+  const pct = (m: number): string => ((m / DAY_MIN) * 100).toFixed(2);
+
+  // ── Loading ──
+
+  async function loadHr(date: string, g: number): Promise<void> {
+    // Base — from requested date (not from curDate after await!)
+    const base = Date.parse(`${date}T00:00:00Z`) + localOffsetMin() * 60_000;
+    try {
+      const resp = await fetchJson<{ points: { time: string; avg?: number }[] }>(
+        `/api/intraday?type=heart-rate&date=${date}&window=600s&offsetMin=${localOffsetMin()}`,
+      );
+      if (g !== gen) return; // date already switched — response outdated
+      hrPts = resp.points
+        .filter((p): p is { time: string; avg: number } => p.avg !== undefined)
+        .map((p) => ({ m: (Date.parse(p.time) - base) / 60_000, v: p.avg }))
+        .filter((p) => p.m >= 0 && p.m <= DAY_MIN)
+        .sort((a, b) => a.m - b.m);
+    } catch {
+      if (g === gen) hrPts = [];
+    }
+  }
+
+  async function loadEvents(date: string, g: number): Promise<void> {
+    const off = localOffsetMin();
+    const [hyd, nut, ecg] = await Promise.allSettled([
+      fetchJson<{ dataPoints?: { interval?: { startTime?: string } }[] }>(
+        `/api/list?type=hydration-log&date=${date}&pageSize=100`,
+      ),
+      fetchJson<{
+        dataPoints?: { interval?: { startTime?: string }; nutritionLog?: { mealType?: string } }[];
+      }>(`/api/list?type=nutrition-log&date=${date}&pageSize=50`),
+      // ECG API filter has no upper bound (>=): we fetch with margin and clip to day ourselves
+      fetchJson<{
+        dataPoints?: { interval?: { startTime?: string }; electrocardiogram?: { classification?: string } }[];
+      }>(`/api/list?type=electrocardiogram&date=${date}&pageSize=100`),
+    ]);
+    if (g !== gen) return; // date already switched — response outdated
+
+    hydration =
+      hyd.status === 'fulfilled'
+        ? (hyd.value.dataPoints ?? [])
+            .map((p) => {
+              const t = p.interval?.startTime;
+              const m = minuteOfDay(t, date, off);
+              return m === null || !t ? null : { m, t };
+            })
+            .filter((x): x is Tick => x !== null)
+        : [];
+
+    meals =
+      nut.status === 'fulfilled'
+        ? (nut.value.dataPoints ?? [])
+            .map((p) => {
+              const t = p.interval?.startTime;
+              const m = minuteOfDay(t, date, off);
+              if (m === null || !t) return null;
+              const mt = p.nutritionLog?.mealType ?? '';
+              const [letter, name] = MEALS[mt] ?? ['•', mt ? mt.toLowerCase() : 'Meal'];
+              return { m, t, letter, name };
+            })
+            .filter((x): x is MealMark => x !== null)
+        : [];
+
+    ecgs =
+      ecg.status === 'fulfilled'
+        ? (ecg.value.dataPoints ?? [])
+            .map((p) => {
+              const t = p.interval?.startTime;
+              const m = minuteOfDay(t, date, off);
+              return m === null || !t ? null : { m, t, cls: p.electrocardiogram?.classification ?? '' };
+            })
+            .filter((x): x is EcgMark => x !== null)
+        : [];
+
+    eventsLoaded = true;
+  }
+
+  // ── Render ──
+
+  function render(): void {
+    const sleeps = summary?.sleep ?? [];
+    const exercises = summary?.exercise ?? [];
+    const hasData =
+      hrPts.length > 1 ||
+      sleeps.length > 0 ||
+      exercises.length > 0 ||
+      hydration.length > 0 ||
+      meals.length > 0 ||
+      ecgs.length > 0;
+    section.hidden = !hasData;
+    if (!hasData) return;
+
+    const off = localOffsetMin();
+    const svg: string[] = [];
+
+    // Grid every 3 hours
+    for (let h = 0; h <= 24; h += 3) {
+      svg.push(
+        `<line x1="${h * 60}" y1="0" x2="${h * 60}" y2="${VIEW_H}" class="tl-grid" vector-effect="non-scaling-stroke"/>`,
+      );
+    }
+
+    // HR curve (line + semi-transparent area)
+    if (hrPts.length > 1) {
+      const vals = hrPts.map((p) => p.v);
+      const min = Math.min(...vals);
+      const max = Math.max(...vals);
+      const span = max - min || 1;
+      const y = (v: number): number => HR_BOT - ((v - min) / span) * (HR_BOT - HR_TOP);
+      const line = hrPts
+        .map((p, i) => `${i === 0 ? 'M' : 'L'}${p.m.toFixed(1)},${y(p.v).toFixed(1)}`)
+        .join('');
+      svg.push(
+        `<path d="${line}L${hrPts[hrPts.length - 1].m.toFixed(1)},${HR_BOT}L${hrPts[0].m.toFixed(1)},${HR_BOT}Z" class="tl-hr-area"/>`,
+        `<path d="${line}" class="tl-hr-line"/>`,
+      );
+    }
+
+    // Sleep segments (purple track), clamped to day boundaries
+    for (const s of sleeps) {
+      if (!s.start) continue;
+      const c = clipToDay(s.start, s.end, curDate, off);
+      if (!c) continue;
+      const durSec = s.end ? Math.round((Date.parse(s.end) - Date.parse(s.start)) / 1000) : null;
+      svg.push(
+        `<rect x="${c[0]}" y="${SLEEP_Y}" width="${c[1] - c[0]}" height="${SLEEP_H}" class="tl-sleep">` +
+          `<title>Sleep ${fmtTime(s.start)} — ${fmtTime(s.end)} · ${fmtDuration(durSec)}</title></rect>`,
+      );
+    }
+
+    // Exercises (white track)
+    for (const e of exercises) {
+      if (!e.start) continue;
+      const c = clipToDay(e.start, e.end, curDate, off);
+      if (!c) continue;
+      const durSec = e.end ? Math.round((Date.parse(e.end) - Date.parse(e.start)) / 1000) : null;
+      const name = e.name || e.type || 'Exercise';
+      svg.push(
+        `<rect x="${c[0]}" y="${EX_Y}" width="${Math.max(c[1] - c[0], 2)}" height="${EX_H}" class="tl-ex">` +
+          `<title>${esc(name)} ${fmtTime(e.start)} — ${fmtTime(e.end)} · ${fmtDuration(durSec)}</title></rect>`,
+      );
+    }
+
+    // HTML overlays: water, food, ECG, "now" line
+    const overlays: string[] = [];
+    for (const h of hydration) {
+      overlays.push(`<div class="tl-tick" style="left:${pct(h.m)}%" title="Water · ${fmtTime(h.t)}"></div>`);
+    }
+    for (const ml of meals) {
+      overlays.push(
+        `<span class="tl-meal" style="left:${pct(ml.m)}%" title="${esc(ml.name)} · ${fmtTime(ml.t)}">${ml.letter}</span>`,
+      );
+    }
+    for (const ec of ecgs) {
+      const cls = ec.cls ? ` · ${esc(ec.cls.replaceAll('_', ' ').toLowerCase())}` : '';
+      overlays.push(`<span class="tl-ecg" style="left:${pct(ec.m)}%" title="ECG · ${fmtTime(ec.t)}${cls}"></span>`);
+    }
+    if (curDate === todayLocal()) {
+      const nowM = (Date.now() - dayStartMs()) / 60_000;
+      if (nowM >= 0 && nowM <= DAY_MIN) {
+        overlays.push(`<div class="tl-now" style="left:${pct(nowM)}%"></div>`);
+      }
+    }
+
+    chart.innerHTML =
+      `<svg viewBox="0 0 ${DAY_MIN} ${VIEW_H}" preserveAspectRatio="none" aria-hidden="true">${svg.join('')}</svg>` +
+      overlays.join('');
+  }
+
+  // ── Subscriptions ──
+
+  subscribeSummary((s) => {
+    // On error store holds previous day's summary — we don't draw for wrong date
+    if (s && s.date === curDate) summary = s;
+    if (eventsLoaded) render();
+  });
+
+  onDate((date) => {
+    const g = ++gen;
+    curDate = date;
+    summary = null;
+    eventsLoaded = false;
+    // While new day loads, we don't show previous SVG — skeleton.
+    section.hidden = false;
+    $('#tl-chart')!.innerHTML = '<span class="skel" style="height:100%"></span>';
+    void Promise.all([loadHr(date, g), loadEvents(date, g)]).then(() => {
+      if (g === gen) render();
+    });
+  });
+</script>

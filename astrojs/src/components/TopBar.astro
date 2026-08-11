@@ -1,0 +1,204 @@
+---
+import QuickWriteModal from './QuickWriteModal.astro';
+
+interface Props {
+  page?: 'day' | 'trends' | 'zones' | 'inspector';
+}
+const { page = 'day' } = Astro.props;
+---
+
+<header class="topbar" data-page={page}>
+  <div class="topbar-inner">
+  <div class="topbar-left">
+    <span class="live"><span class="live-dot"></span>LIVE</span>
+    <span class="topbar-name" id="gh-profile-name">Google Health</span>
+    <span class="topbar-device" id="gh-device-name"></span>
+  </div>
+  
+  <div class="topbar-center">
+    <nav class="view-switch" aria-label="Sections">
+      <a href="/" class:list={{ on: page === 'day' }} aria-current={page === 'day' ? 'page' : undefined}>Overview</a>
+      <a href="/trends" class:list={{ on: page === 'trends' }} aria-current={page === 'trends' ? 'page' : undefined}>Trends</a>
+      <a href="/zones" class:list={{ on: page === 'zones' }} aria-current={page === 'zones' ? 'page' : undefined}>HR Zones</a>
+      <a href="/inspector" class:list={{ on: page === 'inspector' }} aria-current={page === 'inspector' ? 'page' : undefined}>RAW</a>
+    </nav>
+
+    <div id="gh-date-nav" class="date-nav" hidden={page !== 'day'}>
+      <button class="tb-btn" id="gh-prev" title="Previous day" aria-label="Previous day">‹</button>
+      <div class="tb-date">
+        <span id="gh-date-label">…</span>
+        <input type="date" id="gh-date-input" title="Pick a date" aria-label="Pick a date" />
+      </div>
+      <button class="tb-btn" id="gh-next" title="Next day" aria-label="Next day">›</button>
+    </div>
+  </div>
+
+  <div class="topbar-right">
+    <button id="quick-add-btn" class="quick-add-btn">+ Entry</button>
+    <span class="conn-error" id="gh-conn-error" hidden>no connection to Google Health</span>
+    <label class="autorefresh" hidden={page !== 'day'}>
+      <input type="checkbox" id="gh-autorefresh" checked /> auto 60 s
+    </label>
+  </div>
+  </div>
+</header>
+
+<QuickWriteModal />
+
+<script>
+  import { loadSummary } from '@lib/store';
+  import { $, addDaysClient, fetchJson, fmtDateDot, todayLocal } from '@lib/ui';
+  import type { PairedDevice } from '@lib/gh-types';
+
+  const page = document.querySelector('.topbar')?.getAttribute('data-page') ?? 'day';
+
+  $('#quick-add-btn')?.addEventListener('click', () => {
+    window.openQuickWriteModal?.('weight');
+  });
+
+  async function loadIdentity(): Promise<void> {
+    try {
+      // v4 /profile doesn't return name — header is neutral, we only pull devices
+      const devices = await fetchJson<{ pairedDevices?: PairedDevice[] }>('/api/devices');
+      $('#gh-profile-name')!.textContent = 'Google Health';
+      const dev = devices.pairedDevices?.[0];
+      if (dev) {
+        $('#gh-device-name')!.textContent = dev.deviceVersion ?? dev.deviceDisplayName ?? [dev.manufacturer, dev.model].filter(Boolean).join(' ');
+      }
+      $('#gh-conn-error')!.hidden = true;
+    } catch {
+      $('#gh-profile-name')!.textContent = 'Google Health';
+      $('#gh-conn-error')!.hidden = false;
+    }
+  }
+  void loadIdentity();
+
+  if (page === 'day') {
+    const label = $('#gh-date-label')!;
+    const input = $('#gh-date-input') as HTMLInputElement;
+    const prevBtn = $('#gh-prev') as HTMLButtonElement;
+    const nextBtn = $('#gh-next') as HTMLButtonElement;
+    const autoChk = $('#gh-autorefresh') as HTMLInputElement;
+
+    const urlDate = new URLSearchParams(location.search).get('date');
+    let date = urlDate && /^\d{4}-\d{2}-\d{2}$/.test(urlDate) ? urlDate : todayLocal();
+    const today = todayLocal();
+    input.max = today;
+
+    const setDate = (d: string): void => {
+      date = d;
+      document.documentElement.dataset.ghDate = d;
+      label.textContent = fmtDateDot(d);
+      input.value = d;
+      nextBtn.disabled = d >= today;
+      window.dispatchEvent(new CustomEvent('gh:date', { detail: { date: d } }));
+      void loadSummary(d);
+    };
+
+    prevBtn.addEventListener('click', () => setDate(addDaysClient(date, -1)));
+    nextBtn.addEventListener('click', () => {
+      if (date < today) setDate(addDaysClient(date, 1));
+    });
+    input.addEventListener('change', () => {
+      if (input.value && input.value <= today) setDate(input.value);
+    });
+
+    // Date is shown by Doto label; native input is hidden but picker opens
+    // on label click. showPicker isn't everywhere — fallback to focus().
+    label.addEventListener('click', () => {
+      const el = input as HTMLInputElement & { showPicker?: () => void };
+      if (typeof el.showPicker === 'function') {
+        try { el.showPicker(); } catch { input.focus(); }
+      } else {
+        input.focus();
+      }
+    });
+
+    const autoParam = new URLSearchParams(location.search).get('autorefresh');
+    autoChk.checked = autoParam !== '0';
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const scheduleAuto = (): void => {
+      if (timer) clearInterval(timer);
+      if (autoChk.checked) {
+        timer = setInterval(() => {
+          // Past days are immutable — don't waste quota and don't trigger cards.
+          if (date >= today) void loadSummary(date);
+        }, 60_000);
+      }
+    };
+    autoChk.addEventListener('change', scheduleAuto);
+    scheduleAuto();
+    setDate(date);
+  } else {
+    document.documentElement.dataset.ghDate = todayLocal();
+  }
+</script>
+
+<style>
+  .view-switch {
+    display: inline-flex;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 0;
+  }
+  .view-switch a {
+    position: relative;
+    padding: 6px 13px;
+    border-right: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    text-decoration: none;
+    transition: color 0.15s ease, background 0.15s ease;
+  }
+  .view-switch a:last-child { border-right: none; }
+  .view-switch a:hover { color: var(--text); }
+  .view-switch a:active { background: var(--panel-2); color: var(--text); }
+  .view-switch a.on {
+    color: var(--text);
+    background: var(--panel-2);
+  }
+  .view-switch a.on::before {
+    content: '';
+    position: absolute;
+    left: 5px;
+    top: 50%;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--accent);
+    transform: translateY(-50%);
+  }
+  .view-switch a.on { padding-left: 15px; }
+  .quick-add-btn {
+    background: var(--text);
+    color: #000;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    border: none;
+    padding: 7px 14px;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: opacity 0.15s ease;
+  }
+  .quick-add-btn:hover {
+    opacity: 0.85;
+  }
+  .quick-add-btn:active {
+    opacity: 0.7;
+  }
+
+  /* Tablet/phone: larger touch targets for tabs and entry button.
+     Global CSS doesn't override these scoped selectors, so here they are. */
+  @media (max-width: 900px) {
+    .view-switch a { padding: 11px 13px; }
+    .quick-add-btn { padding: 11px 14px; }
+  }
+</style>

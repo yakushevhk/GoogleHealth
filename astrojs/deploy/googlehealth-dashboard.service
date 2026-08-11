@@ -1,0 +1,21 @@
+# Dashboard systemd unit. Install to: /etc/systemd/system/googlehealth-dashboard.service
+[Unit]
+Description=Google Health Dashboard (Astro SSR)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/googlehealth-dashboard
+ExecStart=/usr/bin/node /opt/googlehealth-dashboard/dist/server/entry.mjs
+EnvironmentFile=/opt/googlehealth-dashboard/.env
+# Listen on loopback only: accessible from outside exclusively through nginx (Basic Auth).
+# Without this line the binding depends on server.host in astro.config — we do not rely on it.
+Environment=HOST=127.0.0.1
+Restart=on-failure
+RestartSec=5
+# unsafe to run the service as root
+User=www
+Group=www
+
+[Install]
+WantedBy=multi-user.target

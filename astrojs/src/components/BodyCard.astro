@@ -1,0 +1,197 @@
+---
+/**
+ * Body: adaptive section — only metrics with real data.
+ * By audit only weight lives (2 measurements out of 30 days) → large weight tile
+ * with sparkline of all measurements and measurement log. Other tiles
+ * (fat, glucose, VO₂, temperature) appear automatically if data
+ * comes from a new device. Section hides when nothing is available.
+ */
+---
+
+<section class="panel card reveal b-body" style="--i:4" id="body-card" hidden>
+  <div class="card-head">
+    <span class="card-title" style="color:var(--amber)">Body</span>
+  </div>
+  <div id="body-content">
+    <span class="skel" style="height:60px"></span>
+  </div>
+</section>
+
+<script>
+  import { baseOpts, initChart, timeAxis, valueAxis } from '@lib/charts';
+  import { vo2MaxTrend } from '@lib/stats';
+  import {
+    $,
+    fetchJson,
+    fmt,
+    onDate,
+    setChartSummary,
+    sparkline,
+  } from '@lib/ui';
+
+  interface SeriesPoint { date?: string; avg?: number; min?: number; max?: number }
+  interface SeriesResp { points: SeriesPoint[] }
+
+  interface MetricCfg {
+    key: string;
+    label: string;
+    type: string;
+    /** Fallback data type if primary is empty (e.g., VO₂ from runs). */
+    fallbackType?: string;
+    days: number;
+    unit: string;
+    color: string;
+    digits: number;
+    transform?: (v: number) => number;
+  }
+
+  const METRICS: MetricCfg[] = [
+    { key: 'weight', label: 'Weight', type: 'weight', days: 90, unit: 'kg', color: '#f2f2f2', digits: 1, transform: (v) => v / 1000 },
+    { key: 'fat', label: 'Fat', type: 'body-fat', days: 90, unit: '%', color: '#b3b3b3', digits: 1 },
+    { key: 'glucose', label: 'Glucose', type: 'blood-glucose', days: 30, unit: 'mmol/L', color: '#d4d4d4', digits: 1 },
+    // daily-vo2-max is empty without "smart" scales; run-vo2-max comes from runs.
+    { key: 'vo2', label: 'VO₂ max', type: 'daily-vo2-max', fallbackType: 'run-vo2-max', days: 90, unit: 'mL/kg·min', color: '#c4c4c4', digits: 1 },
+    { key: 'ctemp', label: 'Temperature', type: 'core-body-temperature', days: 30, unit: '°C', color: '#8a8a8a', digits: 1 },
+  ];
+
+  const charts = new Map<string, ReturnType<typeof initChart>>();
+
+  function miniChart(m: MetricCfg): string {
+    return `<div class="chart chart-mini" id="chart-${m.key}" role="img" aria-label="${m.label} trend over ${m.days} days"><span class="chart-sr visually-hidden">No ${m.label} data.</span></div>`;
+  }
+
+  function tileHtml(m: MetricCfg, last: number, pts: { date: string; v: number }[]): string {
+    const first = pts[0].v;
+    const diff = last - first;
+    const trend =
+      pts.length > 1 && Math.abs(diff) > 1e-9
+        ? `<span class="body-trend ${diff > 0 ? 'up' : 'down'}">${diff > 0 ? '▲' : '▼'} ${fmt(Math.abs(diff), m.digits)}</span>`
+        : '';
+    // VO2 max trend indicator
+    let vo2TrendHtml = '';
+    if (m.key === 'vo2' && pts.length >= 2) {
+      const tr = vo2MaxTrend(pts.map((p) => ({ avg: p.v })));
+      if (tr.trend) {
+        const icons: Record<string, string> = { improving: '↑', stable: '→', declining: '↓' };
+        const colors: Record<string, string> = { improving: 'var(--green)', stable: 'var(--text-dim)', declining: 'var(--red)' };
+        const labels: Record<string, string> = { improving: 'rising', stable: 'stable', declining: 'declining' };
+        vo2TrendHtml = `<span class="body-trend" style="color:${colors[tr.trend]}">${icons[tr.trend]} ${labels[tr.trend]}${tr.changePercent !== null ? ` (${tr.changePercent > 0 ? '+' : ''}${fmt(tr.changePercent, 1)}%)` : ''}</span>`;
+      }
+    }
+    const log =
+      m.key === 'weight' && pts.length > 0
+        ? `<div class="weight-log">${pts
+            .slice()
+            .reverse()
+            .slice(0, 6)
+            .map(
+              (p) =>
+                `<div class="weight-log-row"><span class="mono faint">${p.date.slice(8)}.${p.date.slice(5, 7)}</span><b>${fmt(p.v, m.digits)} ${m.unit}</b></div>`,
+            )
+            .join('')}</div>`
+        : '';
+    return `
+      <div class="body-tile ${m.key === 'weight' ? 'body-tile-wide' : ''}" id="tile-${m.key}">
+        <span class="label">${m.label}</span>
+        <div>
+          <span class="body-val">${fmt(last, m.digits)}</span>
+          <small>${m.unit}</small>${trend}${vo2TrendHtml}
+        </div>
+        ${
+          m.key === 'weight'
+            ? sparkline(pts.map((p) => p.v), { color: m.color, id: `spark-${m.key}`, w: 220, h: 34 })
+            : miniChart(m)
+        }
+        ${log}
+      </div>`;
+  }
+
+  async function fetchPoints(type: string, m: MetricCfg, date: string): Promise<{ date: string; v: number }[]> {
+    const resp = await fetchJson<SeriesResp>(
+      `/api/history?type=${type}&days=${m.days}&date=${date}`,
+    );
+    const tr = m.transform ?? ((v: number) => v);
+    return resp.points
+      .map((p) => {
+        // daily-vo2-max comes with a single *Max key
+        // (millilitersPerMinuteKilogramMax) without avg — without fallback
+        // to max/min such points were silently lost.
+        const raw = p.avg ?? p.max ?? p.min;
+        return { date: p.date ?? '', v: raw !== undefined ? tr(raw) : null };
+      })
+      .filter((p): p is { date: string; v: number } => p.v !== null);
+  }
+
+  async function loadMetric(m: MetricCfg, date: string): Promise<{ m: MetricCfg; pts: { date: string; v: number }[] } | null> {
+    try {
+      let pts = await fetchPoints(m.type, m, date);
+      // Primary source empty — trying fallback (VO₂: runs instead of scales)
+      if (pts.length === 0 && m.fallbackType) {
+        pts = await fetchPoints(m.fallbackType, m, date);
+      }
+      return pts.length > 0 ? { m, pts } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function loadAll(date: string): Promise<void> {
+    const results = (await Promise.all(METRICS.map((m) => loadMetric(m, date)))).filter(
+      (r): r is { m: MetricCfg; pts: { date: string; v: number }[] } => r !== null,
+    );
+
+    const card = $('#body-card')!;
+    const content = $('#body-content')!;
+    card.hidden = results.length === 0;
+    if (results.length === 0) return;
+
+    // DOM is recreated every time — without dispose old ECharts instances on
+    // disconnected elements drew to dead canvas (tiles emptied from day 2)
+    for (const c of charts.values()) c.dispose();
+    charts.clear();
+
+    content.innerHTML = `<div class="body-grid">${results
+      .map((r) => tileHtml(r.m, r.pts[r.pts.length - 1].v, r.pts))
+      .join('')}</div>`;
+
+    // ECharts — only for non-weight metrics (weight is fine with sparkline)
+    for (const r of results) {
+      if (r.m.key === 'weight') continue;
+      const el = $(`#chart-${r.m.key}`);
+      if (!el) continue;
+      let chart = charts.get(r.m.key);
+      if (!chart) {
+        chart = initChart(el);
+        charts.set(r.m.key, chart);
+      }
+      chart.setOption({
+        ...baseOpts(),
+        grid: { left: 6, right: 6, top: 6, bottom: 6 },
+        tooltip: {
+          ...(baseOpts().tooltip as object),
+          trigger: 'axis',
+          formatter: (p: { name: string; value: number }[]) =>
+            `${p[0]?.name ?? ''}: ${fmt(p[0]?.value, r.m.digits)} ${r.m.unit}`,
+        },
+        xAxis: { ...timeAxis(), data: r.pts.map((p) => p.date.slice(5)), show: false, boundaryGap: false },
+        yAxis: { ...valueAxis(), show: false, scale: true },
+        series: [
+          {
+            type: 'line',
+            data: r.pts.map((p) => p.v),
+            symbol: 'none',
+            lineStyle: { color: r.m.color, width: 1.6 },
+            areaStyle: { color: r.m.color, opacity: 0.1 },
+          },
+        ],
+      }, true);
+      const vals = r.pts.map((p) => p.v);
+      setChartSummary(
+        el,
+        `${r.m.label} over ${r.pts.length} measurements: from ${fmt(Math.min(...vals), r.m.digits)} to ${fmt(Math.max(...vals), r.m.digits)} ${r.m.unit}.`,
+      );
+    }
+  }
+
+  onDate((date) => void loadAll(date));
+</script>

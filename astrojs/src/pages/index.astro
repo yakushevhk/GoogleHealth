@@ -1,0 +1,57 @@
+---
+/**
+ * Google Health Dashboard — single page, date-driven.
+ * Read-only dashboard for all Google Health API metrics.
+ */
+import '@fontsource-variable/doto/full.css';
+import '@fontsource/ibm-plex-mono/400.css';
+import '@fontsource/ibm-plex-mono/500.css';
+import '@fontsource/ibm-plex-sans/400.css';
+import '@fontsource/ibm-plex-sans/500.css';
+import '@fontsource/ibm-plex-mono/600.css';
+import '../styles/global.css';
+
+import TopBar from '../components/TopBar.astro';
+import VitalsStrip from '../components/VitalsStrip.astro';
+import DayTimeline from '../components/DayTimeline.astro';
+import ActivityCard from '../components/ActivityCard.astro';
+import HeartCard from '../components/HeartCard.astro';
+import SleepCard from '../components/SleepCard.astro';
+import BodyCard from '../components/BodyCard.astro';
+import ExerciseCard from '../components/ExerciseCard.astro';
+import MiscCard from '../components/MiscCard.astro';
+import DevicesFooter from '../components/DevicesFooter.astro';
+---
+
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Google Health — Dashboard</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='34' fill='%23d71921'/%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <TopBar />
+    <main class="wrap">
+      <VitalsStrip />
+      <DayTimeline />
+      <div class="bento">
+        <ActivityCard />
+        <HeartCard />
+        <SleepCard />
+        <BodyCard />
+        <ExerciseCard />
+        <MiscCard />
+      </div>
+      <DevicesFooter />
+    </main>
+    <script>
+      import { initReveal } from '@lib/ui';
+      initReveal();
+    </script>
+  </body>
+</html>

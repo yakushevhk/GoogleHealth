@@ -1,0 +1,19 @@
+services:
+  health-mcp:
+    build: .
+    container_name: health-mcp
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    env_file:
+      - .env
+    environment:
+      - MCP_API_KEY=${MCP_API_KEY:-change-me}
+      - HOST=0.0.0.0
+      - PORT=3000
+    command: ["--http"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
