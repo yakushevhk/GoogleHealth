@@ -12,10 +12,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Web Dashboard (Astro.js)
 - Manual refresh button in the top bar (immediate re-fetch of today's data, e.g. after a write or connection recovery)
 - Screen-reader support for canvas charts: `role="img"` + `aria-label` plus a visually-hidden textual summary (HR, HRV, SpO₂, sleep, body, zones, trends) updated from real loaded data
+- OAuth/auth diagnostics via `GET /api/status` (presence-only, no secrets)
+- Single-page `GET /api/dashboard` payload with a per-section availability map
+- Health/readiness probes: `GET /api/healthz`, `GET /api/readyz` (`probe=1` for upstream check)
+- Runtime metrics: `GET /api/metrics` (cache/upstream counters)
+- Insights engine (`src/lib/insights.ts`) + `GET /api/insights` — analytical, non-medical observations (sleep, HRV, RHR, steps, bedtime, recovery, weight) with a Trends panel
+- CSV/JSON export of period series (steps/heart/HRV/sleep/weight) from the Trends page
+- Chart PNG export helper (`chartDataUrl` / `downloadChartPng` in charts.ts)
+- i18n (en/ru) dictionary + settings module (card visibility, compact mode, auto-refresh interval, persisted)
+- Configurable auto-refresh (off/30s/60s/5m), hotkeys (`←`/`→`, r/R, t, p)
+- Mobile/tablet layout improvements and compact dashboard mode
+- Security headers (CSP, frame, nosniff, referrer, permissions) + request-id on every response via middleware
+- Privacy mode: values blurred on window blur or on `p`
+- Dedicated non-root `astrojs/Dockerfile` (check+test+build, healthcheck) + dashboard service in `docker-compose.yml`
+- Dependabot coverage for astrojs npm + docker
 
 #### Performance
 - Client-side GET memoization with single-flight deduplication: identical or short-lived repeated requests (heart-rate intraday fetched by several cards with different windows, date switches, auto-refresh) no longer hit the server twice within a short TTL
 - `whenVisible()` utility to defer expensive chart initialization until an element scrolls into view (ready for lazy-render use)
+- Typed error hierarchy (`errors.ts`) and HTTP helpers (`http.ts`) for consistent status mapping
+- Privacy/redaction helpers for safe logging (`privacy.ts`); request correlation + counters (`request-meta.ts`)
 
 ### Fixed
 - `astro check` (typecheck) failed with 53 TS errors due to unescaped apostrophes in test descriptions (`tests/ui.test.ts`, `tests/store.test.ts`) — quotes escaped, typecheck now clean
