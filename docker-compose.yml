@@ -17,3 +17,23 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+  dashboard:
+    build: ./astrojs
+    container_name: googlehealth-dashboard
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4321:4321"
+    env_file:
+      - .env
+    environment:
+      - HOST=0.0.0.0
+      - PORT=4321
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+    healthcheck:
+      test:
+        ["CMD", "node", "-e", "fetch('http://127.0.0.1:4321/api/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

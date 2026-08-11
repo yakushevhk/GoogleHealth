@@ -12,8 +12,16 @@ updates:
     directory: /ts
     schedule:
       interval: weekly
+  - package-ecosystem: npm
+    directory: /astrojs
+    schedule:
+      interval: weekly
   - package-ecosystem: pip
     directory: /py
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /astrojs
     schedule:
       interval: weekly
   - package-ecosystem: github-actions

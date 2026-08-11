@@ -1446,3 +1446,17 @@ body.compact .chart { min-height: 60px; }
   .view-switch a { padding: 9px 8px; font-size: 9px; }
   .topbar-inner { gap: 8px; }
 }
+
+/* ─── Privacy mode: blur sensitive values on window blur / manual toggle ──── */
+body.privacy .vital-num,
+body.privacy .sum-num,
+body.privacy .comp-val,
+body.privacy .body-val,
+body.privacy .hr-avg-num,
+body.privacy .rec-val,
+body.privacy .slp-total,
+body.privacy .weight-log-row b,
+body.privacy .ins-item b {
+  filter: blur(6px);
+  user-select: none;
+}

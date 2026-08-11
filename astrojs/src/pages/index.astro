@@ -66,6 +66,23 @@ import DevicesFooter from '../components/DevicesFooter.astro';
       applySettings();
       // Re-apply when settings change (e.g. from a settings panel elsewhere).
       window.addEventListener('gh:settings', applySettings);
+
+      // Privacy mode: blur sensitive values when the window loses focus or when
+      // the user toggles the "hide" control (set via body.privacy on the page).
+      window.addEventListener('blur', () => document.body.classList.add('privacy'));
+      window.addEventListener('focus', () => {
+        // Honoring a manual toggle: if body has data-privacy=1 the user chose to
+        // keep it hidden even when focused; otherwise clear the blur state.
+        if (document.body.dataset.privacy !== '1') document.body.classList.remove('privacy');
+      });
+      // Keyboard: toggle privacy with "p".
+      window.addEventListener('keydown', (e) => {
+        if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+        if (e.key.toLowerCase() === 'p') {
+          document.body.classList.toggle('privacy');
+          document.body.dataset.privacy = document.body.classList.contains('privacy') ? '1' : '0';
+        }
+      });
     </script>
   </body>
 </html>
