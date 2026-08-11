@@ -21,7 +21,7 @@
     "@fontsource/ibm-plex-mono": "^5.2.6",
     "@fontsource/ibm-plex-sans": "^5.2.6",
     "astro": "^5.16.0",
-    "echarts": "^5.6.0"
+    "echarts": "^6.1.0"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
