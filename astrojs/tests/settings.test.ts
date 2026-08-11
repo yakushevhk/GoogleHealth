@@ -66,4 +66,21 @@ describe('settings', () => {
     const out = parseSettings('{not json');
     expect(out).toEqual(expect.objectContaining({ compact: DEFAULT_SETTINGS.compact }));
   });
+
+  it('parseSettings sanitizes bad field types', () => {
+    const out = parseSettings(
+      JSON.stringify({ compact: 'yes', refreshSec: -5, language: 'fr', visible: { heart: 'no' } }),
+    );
+    expect(out.compact).toBe(false);
+    expect(out.refreshSec).toBe(60);
+    expect(out.language).toBe('ru');
+    // Unknown keys in visible fall back to defaults (true).
+    expect(out.visible.heart).toBe(true);
+  });
+
+  it('parseSettings tolerates empty object and unknown visible keys', () => {
+    const out = parseSettings('{}');
+    expect(out.compact).toBe(false);
+    for (const id of CARD_IDS) expect(out.visible[id]).toBe(true);
+  });
 });

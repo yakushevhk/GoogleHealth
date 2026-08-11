@@ -164,7 +164,9 @@ export interface RecoveryInsightInput {
 
 /** Readiness derived from HRV + RHR (reuses computeReadiness semantics). */
 export function recoveryInsight(i: RecoveryInsightInput): Insight | null {
-  if (!i.hasData) return null;
+  // Guard on a positive, finite HRV first: a missing/zero value must not be
+  // reported as "low recovery" (no signal ≠ bad signal).
+  if (!i.hasData || !Number.isFinite(i.hrvAvg) || i.hrvAvg <= 0) return null;
   if (i.hrvAvg > 50 && i.rhrAvg > 0 && i.rhrAvg < 65) {
     return {
       key: 'recovery_high',
@@ -193,7 +195,18 @@ export interface WeightInsightInput {
 
 /** Weight trend over the period (> 1.5 kg change either way). */
 export function weightInsight(i: WeightInsightInput): Insight | null {
-  if (i.firstKg === null || i.lastKg === null || i.firstKg <= 0) return null;
+  // Both ends must be positive, finite kg — otherwise it's "no data". A missing
+  // lastKg must not fall through to a weight_down with NaN.
+  if (
+    i.firstKg === null ||
+    i.lastKg === null ||
+    !Number.isFinite(i.firstKg) ||
+    !Number.isFinite(i.lastKg) ||
+    i.firstKg <= 0 ||
+    i.lastKg <= 0
+  ) {
+    return null;
+  }
   const diff = i.lastKg - i.firstKg;
   const abs = Math.abs(diff);
   if (abs < 1.5) {

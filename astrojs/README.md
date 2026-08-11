@@ -37,7 +37,7 @@ Copy `.env.example` → `.env`.
 ## What's on Screen
 
 A single page driven by a date picker (‹ › + date input) and configurable
-auto-refresh (off / 30s / 60s / 5m, persisted in settings):
+auto-refresh (off / 60 s via the UI, persisted in settings):
 
 - **Vitals feed** — HR (with ECG waveform), HRV·RMSSD, SpO₂, respiratory rate, temperature, resting heart rate: large numbers, sparklines, deltas vs previous day.
 - **Activity** — step ring (goal 10,000), calories, distance, floors, active minutes, heart rate zones, sedentary alert.
@@ -53,7 +53,11 @@ Missing metrics for a day show as "—"; empty sections are hidden automatically
 
 ### Dashboard settings
 
-- Show/hide individual cards and toggle compact mode (`dashboard settings` module, persisted to `localStorage`).
+- A settings module stores card visibility and compact mode in `localStorage`;
+  the dashboard applies them on load and on a `gh:settings` event. (A visual
+  settings *panel* is not yet wired up — values are applied when present.)
+- Auto-refresh interval is configurable and read from settings (off / 60 s by
+  default; other intervals can be written directly).
 - Keyboard shortcuts: `←`/`→` switch day, `r`/`R` refresh, `t` today, `p` privacy toggle.
 
 ### Privacy

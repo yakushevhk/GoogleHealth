@@ -35,18 +35,20 @@ export function looksLikeCredential(s: string): boolean {
 }
 
 /**
- * Strip values whose keys look like credentials from an object (shallow),
- * returning a copy with those keys removed. Used before serializing data.
+ * Strip values whose keys look like credentials from an object (recursive,
+ * including objects nested inside arrays), returning a copy without them.
+ * Used before serializing data.
  */
 export function stripCredentials(obj: Record<string, unknown>): Record<string, unknown> {
+  const clean = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(clean);
+    if (v !== null && typeof v === 'object') return stripCredentials(v as Record<string, unknown>);
+    return v;
+  };
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) {
     if (/token|secret|client[-_]?(id|secret)|api[-_]?key/i.test(k)) continue;
-    if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
-      out[k] = stripCredentials(v as Record<string, unknown>);
-    } else {
-      out[k] = v;
-    }
+    out[k] = clean(v);
   }
   return out;
 }

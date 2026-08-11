@@ -22,6 +22,11 @@ describe('csvField', () => {
     expect(csvField('he "said"')).toBe('"he ""said"""');
     expect(csvField('line\nbreak')).toBe('"line\nbreak"');
   });
+  it('renders non-finite numbers as empty cells, not "NaN"/"Infinity"', () => {
+    expect(csvField(NaN)).toBe('');
+    expect(csvField(Infinity)).toBe('');
+    expect(csvField(-Infinity)).toBe('');
+  });
 });
 
 describe('toCsv', () => {

@@ -150,7 +150,9 @@ export async function loadStatus(force = false): Promise<OAuthStatus | null> {
     return statusCache;
   }
   try {
-    const s = await fetchJson<OAuthStatus>('/api/status');
+    // bypassCache: the GET cache in ui.ts would otherwise serve a 6s-old
+    // /api/status and defeat `force` (and skew status after a write/refresh).
+    const s = await fetchJson<OAuthStatus>('/api/status', { bypassCache: true });
     statusCache = s;
     statusLoadedAt = Date.now();
     notifyStatus();

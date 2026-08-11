@@ -110,3 +110,25 @@ describe('collectInsights', () => {
     expect(order[order.length - 1]).toBe('good');
   });
 });
+
+// Guards that a missing/zero metric never yields a non-null insight.
+describe('insights guards (zero/missing data)', () => {
+  it('sleep with avg=0 → null, not a "short sleep" alarm', () => {
+    expect(sleepInsight({ lastAsleepMin: 300, avgAsleepMin: 0, nights: 1 })).toBeNull();
+  });
+  it('hrv with sd=0 or avg=0 → null', () => {
+    expect(hrvInsight({ lastHrv: 10, avgHrv: 10, sdHrv: 0 })).toBeNull();
+    expect(hrvInsight({ lastHrv: 10, avgHrv: 0, sdHrv: 12 })).toBeNull();
+  });
+  it('rhr with avg=0 → null', () => {
+    expect(rhrInsight({ lastRhr: 70, avgRhr: 0 })).toBeNull();
+  });
+  it('recovery with hrv=0 but hasData → null (no false "recovery_low")', () => {
+    expect(recoveryInsight({ hrvAvg: 0, rhrAvg: 70, hasData: true })).toBeNull();
+  });
+  it('weight with a missing/zero/NaN end → null (not weight_down)', () => {
+    expect(weightInsight({ firstKg: 70, lastKg: null })).toBeNull();
+    expect(weightInsight({ firstKg: 70, lastKg: 0 })).toBeNull();
+    expect(weightInsight({ firstKg: 70, lastKg: NaN })).toBeNull();
+  });
+});

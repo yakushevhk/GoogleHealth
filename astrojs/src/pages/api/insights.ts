@@ -12,7 +12,7 @@ import { makeRequestMeta } from '@lib/request-meta';
 import { apiCache, CACHE_PREFIXES } from '@lib/cache';
 import { toNumber } from '@lib/extract';
 import { addDays, buildRangeFilter, nextDay, todayLocal } from '@lib/filters';
-import { ghDailyRollUp, ghListAll } from '@lib/gh-client';
+import { ghDailyRollUp, ghListAll, GhError } from '@lib/gh-client';
 import { collectInsights, type Insight } from '@lib/insights';
 
 const DEFAULT_DAYS = 30;
@@ -26,6 +26,8 @@ interface Series {
 interface SleepRow {
   date: string;
   asleepMinutes: number | null;
+  /** bedtime in fractional hours (0–24) for consistency analysis. */
+  bedHours: number | null;
 }
 interface InsightsPayload {
   days: number;
@@ -102,6 +104,15 @@ export const GET: APIRoute = async ({ request }) => {
               };
               const end = s.interval?.endTime;
               const off = s.interval?.endUtcOffset;
+              const start = s.interval?.startTime;
+              const local = (iso: string | undefined): number | null => {
+                if (!iso) return null;
+                const t = Date.parse(iso);
+                if (Number.isNaN(t)) return null;
+                const shift = off ? parseInt(off, 10) || 0 : 0;
+                const d = new Date(t + shift * 1000);
+                return d.getUTCHours() + d.getUTCMinutes() / 60;
+              };
               const date = end
                 ? off
                   ? new Date(Date.parse(end) + (parseInt(off, 10) || 0) * 1000)
@@ -112,22 +123,44 @@ export const GET: APIRoute = async ({ request }) => {
               return {
                 date,
                 asleepMinutes: toNumber(s.summary?.minutesAsleep) ?? null,
+                bedHours: local(start),
               };
             })
             .filter((s) => s.date);
         };
 
+        // Collect per-series failures so a TOTAL upstream failure (dead token /
+        // network) surfaces as a 502 instead of being masked by per-series
+        // `.catch(() => [])` into a misleading empty 200.
+        const errors: unknown[] = [];
+        const sink = (e: unknown): [] => {
+          errors.push(e);
+          return [];
+        };
         const [hrv, rhr, steps, sleep, weight] = await Promise.all([
-          dailySeries('daily-heart-rate-variability').catch(() => [] as Series[]),
-          dailySeries('daily-resting-heart-rate').catch(() => [] as Series[]),
+          dailySeries('daily-heart-rate-variability').catch(sink),
+          dailySeries('daily-resting-heart-rate').catch(sink),
           rollupSeries('steps', (p) => ({
             sum: toNumber((p.steps as { countSum?: string } | undefined)?.countSum),
-          })).catch(() => [] as Series[]),
-          sleepRows().catch(() => [] as SleepRow[]),
+          })).catch(sink),
+          sleepRows().catch(sink),
           rollupSeries('weight', (p) => ({
-            avg: toNumber((p.weight as { weightGramsAvg?: number } | undefined)?.weightGramsAvg),
-          })).catch(() => [] as Series[]),
+            // weightGramsAvg comes in grams; insights expect kg (same /1000 as
+            // the rest of the dashboard) — otherwise trends read as if kg.
+            avg: (() => {
+              const g = toNumber(
+                (p.weight as { weightGramsAvg?: number } | undefined)?.weightGramsAvg,
+              );
+              return g === undefined ? undefined : g / 1000;
+            })(),
+          })).catch(sink),
         ]);
+        // All five upstream fetches failed → it's an account/network problem,
+        // not "no insights". Reuse the analytics convention (mirrors summary.ts).
+        if (errors.length >= 5) {
+          const gh = errors.find((e) => e instanceof GhError);
+          throw gh ?? new GhError('insights: all requests failed', 502);
+        }
 
         const nums = (arr: Series[], key: 'avg' | 'sum'): number[] =>
           arr.map((s) => s[key]).filter((v): v is number => typeof v === 'number');
@@ -151,6 +184,12 @@ export const GET: APIRoute = async ({ request }) => {
         const avgSleepMin = nights.length
           ? nights.reduce((a, s) => a + (s.asleepMinutes as number), 0) / nights.length
           : null;
+        // bedHour is fractional hours (0–24); normalize late bedtimes (> 12) as
+        // minutes-from-midnight variance across nights (feed bedtimeInsight).
+        const bedVals = sleep
+          .map((s) => s.bedHours)
+          .filter((h): h is number => h !== null && Number.isFinite(h))
+          .map((h) => (h < 12 ? h + 24 : h) * 60);
 
         const insights = collectInsights({
           sleep: {
@@ -161,6 +200,7 @@ export const GET: APIRoute = async ({ request }) => {
           hrv: { lastHrv: lastN(hrv, 'avg'), avgHrv: meanOf(hrv, 'avg'), sdHrv: sdOf(hrv, 'avg') },
           rhr: { lastRhr: lastN(rhr, 'avg'), avgRhr: meanOf(rhr, 'avg') },
           steps: { avg7: meanOf(steps, 'sum', 7), baseline: meanOf(steps, 'sum'), target: 10000 },
+          bedtime: { bedMin: bedVals, nights: bedVals.length },
           recovery: {
             hrvAvg: meanOf(hrv, 'avg') ?? 0,
             rhrAvg: meanOf(rhr, 'avg') ?? 0,

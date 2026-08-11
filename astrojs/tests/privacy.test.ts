@@ -51,6 +51,17 @@ describe('stripCredentials', () => {
     expect(nested).not.toHaveProperty('api_key');
     expect(nested.keep).toBe(1);
   });
+
+  it('recurses into objects nested inside arrays', () => {
+    const obj = {
+      list: [{ refresh_token: 'x', safe: 1 }, { api_key: 'y' }],
+    };
+    const out = stripCredentials(obj);
+    const list = out.list as Record<string, unknown>[];
+    expect(list[0].safe).toBe(1);
+    expect(list[0]).not.toHaveProperty('refresh_token');
+    expect(list[1]).not.toHaveProperty('api_key');
+  });
 });
 
 describe('google user id', () => {

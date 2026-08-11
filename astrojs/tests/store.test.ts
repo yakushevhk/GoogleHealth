@@ -117,3 +117,67 @@ describe('loadSummary — fresh module', () => {
     });
   });
 });
+
+describe('loadStatus (fresh module)', () => {
+  async function freshStore() {
+    vi.resetModules();
+    return await import('@lib/store');
+  }
+
+  const statusResponse = (over = {}) =>
+    ({
+      ok: true,
+      json: async () => ({
+        status: 'ok',
+        configured: true,
+        oauth: { hasClientId: true, hasClientSecret: true, hasRefreshToken: true, refreshSource: 'env' },
+        ...over,
+      }),
+    }) as Response;
+
+  it('loads once and caches within TTL (no second fetch)', async () => {
+    let hits = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        hits++;
+        return statusResponse();
+      }),
+    );
+    const store = await freshStore();
+    await store.loadStatus();
+    await store.loadStatus();
+    expect(hits).toBe(1);
+    expect(store.getStatus()?.configured).toBe(true);
+  });
+
+  it('force reloads past the TTL', async () => {
+    let hits = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        hits++;
+        return statusResponse({ status: hits === 1 ? 'ok' : 'misconfigured' });
+      }),
+    );
+    const store = await freshStore();
+    await store.loadStatus();
+    expect(store.getStatus()?.status).toBe('ok');
+    await store.loadStatus(true);
+    expect(store.getStatus()?.status).toBe('misconfigured');
+  });
+
+  it('keeps the previous cached status if a refresh fails', async () => {
+    let fail = false;
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      if (fail) throw new Error('network down');
+      return statusResponse();
+    }));
+    const store = await freshStore();
+    await store.loadStatus();
+    expect(store.getStatus()?.configured).toBe(true);
+    fail = true;
+    await store.loadStatus(true);
+    expect(store.getStatus()?.configured).toBe(true);
+  });
+});

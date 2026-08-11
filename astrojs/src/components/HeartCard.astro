@@ -21,6 +21,13 @@
         <button data-days="30" class="on" aria-pressed="true">30</button>
         <button data-days="90" aria-pressed="false">90</button>
       </div>
+      <button
+        class="ghost-btn chart-export-btn"
+        type="button"
+        id="hr-export-png"
+        title="Download chart as PNG"
+        aria-label="Download chart as PNG"
+      >PNG</button>
     </div>
   </div>
 
@@ -109,6 +116,7 @@
     paintEmpty,
     timeAxis,
     valueAxis,
+    downloadChartPng,
   } from '@lib/charts';
   import { toNumber } from '@lib/extract';
   import { localOffsetMin } from '@lib/filters';
@@ -120,6 +128,7 @@
     fetchJson,
     fmt,
     fmtTime,
+    getDate,
     isConnError,
     onDate,
     setChartSummary,
@@ -619,6 +628,15 @@
     if (curDate) void loadTrends(curDate);
   });
 
+  // Export the heart-rate chart as a 2x PNG (uses the current day).
+  $('#hr-export-png')?.addEventListener('click', () => {
+    const ok = downloadChartPng(hrChart, `googlehealth-heart-${getDate()}`);
+    if (!ok) {
+      const btn = $('#hr-export-png') as HTMLButtonElement | null;
+      if (btn) btn.title = 'Chart is not ready to export yet';
+    }
+  });
+
   onDate((date) => {
     curDate = date;
     void loadHeartRate(date);
@@ -636,4 +654,19 @@
   .hr-week-wrap { min-height: 34px; display: flex; align-items: center; }
   .hr-week-wrap .vital-spark { width: 100%; max-width: 420px; height: 34px; }
   .readiness-nums { color: var(--text-dim); }
+  .chart-export-btn {
+    align-self: center;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 4px 8px;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+  .chart-export-btn:hover { color: var(--text); border-color: var(--border-hover); }
 </style>

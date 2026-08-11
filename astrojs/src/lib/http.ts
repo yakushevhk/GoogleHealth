@@ -3,7 +3,7 @@
  * error-to-JSON mapping (reusing `errors.ts`), and request metric hooks.
  */
 import { messageOf, statusOf } from './errors';
-import { countMetric, makeRequestMeta } from './request-meta';
+import { makeRequestMeta } from './request-meta';
 
 /** Security headers applied to every JSON API response. */
 const DEFAULT_HEADERS: Record<string, string> = {
@@ -33,7 +33,6 @@ export function jsonOk(data: unknown, ctx: ApiContext = {}, status = 200): Respo
     headers['x-request-id'] = ctx.meta.id;
     headers['x-request-duration-ms'] = String(ctx.meta.elapsedMs());
   }
-  countMetric('cache_miss');
   return json(data, status, headers);
 }
 

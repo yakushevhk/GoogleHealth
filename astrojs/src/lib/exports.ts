@@ -30,6 +30,9 @@ export function toRows<T extends Record<string, unknown>>(
 /** Escape a single CSV field (quotes doubled, RFC-4180), no other transform. */
 export function csvField(v: unknown): string {
   if (v === null || v === undefined) return '';
+  // Non-finite numbers would render as the literals "NaN"/"Infinity" and leak
+  // into spreadsheets — treat them as empty cells, like missing data.
+  if (typeof v === 'number' && !Number.isFinite(v)) return '';
   const s = String(v);
   // Wrap in quotes if it contains a comma, quote, newline, or CR.
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;

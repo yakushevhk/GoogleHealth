@@ -12,8 +12,11 @@ describe('t', () => {
     expect(t('nav.trends', 'en')).toBe('Trends');
     expect(t('nav.trends', 'ru')).toBe('Тренды');
   });
-  it('falls back to en for a missing ru key', () => {
-    expect(t('nav.raw', 'ru')).toBe('RAW');
+  it('ru dictionary fully covers en (fallback is a no-op today)', () => {
+    // The vocab-parity test below guarantees ru ⊇ en, so every en key
+    // resolves for ru as well; assert that invariant here for a couple of keys.
+    expect(t('top.auto', 'ru', { sec: 60 })).toBe('авто 60с');
+    expect(t('error.retry', 'ru')).toBe('Повторить');
   });
   it('returns the key itself when unknown', () => {
     expect(t('missing.key', 'en')).toBe('missing.key');
