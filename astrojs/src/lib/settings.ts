@@ -24,8 +24,6 @@ export interface DashboardSettings {
   compact: boolean;
   /** Auto-refresh interval in seconds (0 = off). */
   refreshSec: number;
-  /** Highlight/hide the "auto" indicator (cosmetic). */
-  language: 'en' | 'ru';
 }
 
 export const DEFAULT_SETTINGS: DashboardSettings = {
@@ -35,7 +33,6 @@ export const DEFAULT_SETTINGS: DashboardSettings = {
   >,
   compact: false,
   refreshSec: 60,
-  language: 'ru',
 };
 
 export type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
@@ -58,7 +55,6 @@ export function parseSettings(raw: string | null): DashboardSettings {
         typeof data.refreshSec === 'number' && data.refreshSec >= 0
           ? data.refreshSec
           : DEFAULT_SETTINGS.refreshSec,
-      language: data.language === 'en' ? 'en' : DEFAULT_SETTINGS.language,
     };
   } catch {
     return { ...DEFAULT_SETTINGS, visible: { ...DEFAULT_SETTINGS.visible } };

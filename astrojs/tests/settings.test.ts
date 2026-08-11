@@ -73,7 +73,8 @@ describe('settings', () => {
     );
     expect(out.compact).toBe(false);
     expect(out.refreshSec).toBe(60);
-    expect(out.language).toBe('ru');
+    // Unknown/extra keys (e.g. a removed 'language' field) are ignored.
+    expect(out).not.toHaveProperty('language');
     // Unknown keys in visible fall back to defaults (true).
     expect(out.visible.heart).toBe(true);
   });

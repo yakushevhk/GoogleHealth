@@ -137,6 +137,7 @@ export const GET: APIRoute = async ({ request }) => {
           errors.push(e);
           return [];
         };
+        const FETCH_COUNT = 5; // hrv, rhr, steps, sleep, weight
         const [hrv, rhr, steps, sleep, weight] = await Promise.all([
           dailySeries('daily-heart-rate-variability').catch(sink),
           dailySeries('daily-resting-heart-rate').catch(sink),
@@ -155,9 +156,10 @@ export const GET: APIRoute = async ({ request }) => {
             })(),
           })).catch(sink),
         ]);
-        // All five upstream fetches failed → it's an account/network problem,
-        // not "no insights". Reuse the analytics convention (mirrors summary.ts).
-        if (errors.length >= 5) {
+        // Only a TOTAL upstream failure (all fetches) is an account/network
+        // problem, not "no insights". Reuse the analytics convention and keep
+        // the threshold tied to the actual fetch count (mirrors summary.ts).
+        if (errors.length >= FETCH_COUNT) {
           const gh = errors.find((e) => e instanceof GhError);
           throw gh ?? new GhError('insights: all requests failed', 502);
         }

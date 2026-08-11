@@ -57,9 +57,11 @@ Missing metrics for a day show as "—"; empty sections are hidden automatically
   the dashboard applies them on load and on a `gh:settings` event. The top bar
   has a **settings panel** (⚙): show/hide each of the seven cards, toggle
   compact mode, and reset to defaults.
-- A **language toggle** switches between ru/en (`<html lang>` + a `gh:locale`
-  event). Auto-refresh interval is configurable and read from settings (off /
-  60 s by default; other intervals can be written directly).
+- A **language toggle** switches ru/en and re-localizes the top-bar chrome
+  (nav, connection status, settings panel labels, auto-refresh label) via the
+  i18n dictionary (card/chart titles remain hardcoded for now). Auto-refresh
+  interval is configurable and read from settings (off / 60 s by default; other
+  intervals can be written directly).
 - Keyboard shortcuts: `←`/`→` switch day, `r`/`R` refresh, `t` today, `p` privacy toggle.
 
 ### Privacy

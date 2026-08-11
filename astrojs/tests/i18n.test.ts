@@ -45,8 +45,11 @@ describe('currentLocale', () => {
     expect(currentLocale(null, 'ru')).toBe('ru');
     expect(currentLocale(undefined, 'en')).toBe('en');
   });
-  it('defaults to en', () => {
+  it('defaults to en only when no language signal exists at all', () => {
+    // The app always sets <html lang>, so this path (no stored pref, no doc
+    // lang) is not reachable in practice; the real default is driven by <html lang>.
     expect(currentLocale(null, undefined)).toBe('en');
+    expect(currentLocale(null, 'ru')).toBe('ru');
   });
 });
 
