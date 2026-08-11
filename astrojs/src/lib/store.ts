@@ -107,3 +107,62 @@ export async function loadPrevDaySummary(date: string): Promise<DaySummary | nul
     return null;
   }
 }
+
+// ─── Auth / connection status (single source for the UI) ─────────────────────
+
+export interface OAuthStatus {
+  status: 'ok' | 'misconfigured';
+  configured: boolean;
+  oauth: {
+    hasClientId: boolean;
+    hasClientSecret: boolean;
+    hasRefreshToken: boolean;
+    refreshSource: 'env' | 'file' | 'missing';
+  };
+  suggestion?: string;
+}
+
+const statusListeners = new Set<() => void>();
+let statusCache: OAuthStatus | null = null;
+let statusLoadedAt = 0;
+const STATUS_TTL_MS = 30_000;
+
+export function subscribeStatus(fn: () => void): () => void {
+  statusListeners.add(fn);
+  return () => statusListeners.delete(fn);
+}
+
+function notifyStatus(): void {
+  for (const fn of statusListeners) fn();
+}
+
+/** Current cached status (or null before the first successful load). */
+export function getStatus(): OAuthStatus | null {
+  return statusCache;
+}
+
+/**
+ * Load /api/status once, cached for STATUS_TTL. `force` bypasses the TTL (e.g.
+ * after a refresh or a modal write). Only successful responses are cached.
+ */
+export async function loadStatus(force = false): Promise<OAuthStatus | null> {
+  if (!force && statusCache && Date.now() - statusLoadedAt < STATUS_TTL_MS) {
+    return statusCache;
+  }
+  try {
+    const s = await fetchJson<OAuthStatus>('/api/status');
+    statusCache = s;
+    statusLoadedAt = Date.now();
+    notifyStatus();
+    return s;
+  } catch {
+    return statusCache;
+  }
+}
+
+/** Force a reload (used by the refresh button / on tab focus). */
+export function invalidateStatus(): void {
+  statusCache = null;
+  statusLoadedAt = 0;
+  void loadStatus();
+}
