@@ -1418,3 +1418,31 @@ body {
   .reveal { opacity: 1 !important; transform: none !important; }
   .vital-spark path[stroke] { animation: none; stroke-dashoffset: 0; }
 }
+
+/* ─── Compact dashboard mode (user setting) ────────────────────────────────── */
+body.compact .wrap { padding-top: 10px; }
+body.compact .panel,
+body.compact .card { border-radius: 2px; }
+body.compact .card { padding: 8px 10px !important; }
+body.compact .vitals { gap: 4px; }
+body.compact .chart { min-height: 60px; }
+
+/* ─── Mobile/tablet improvements ───────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .wrap { padding: 12px 12px 32px; }
+  /* Stack the bento grid into a single column for readability. */
+  .bento { display: flex !important; flex-direction: column; gap: 14px; }
+  .bento > * { width: 100% !important; }
+  /* Larger touch targets for buttons in the top bar. */
+  .view-switch a { padding: 10px 11px; }
+  .quick-add-btn, .tb-btn.ghost-btn { padding: 10px 12px; }
+  .date-nav .tb-btn { min-width: 34px; padding: 8px 10px; }
+  /* Keep the top bar usable on narrow screens: allow wrap, cap the logo area. */
+  .topbar-inner { flex-wrap: wrap; row-gap: 6px; }
+  .topbar-name { font-size: 12px; }
+}
+
+@media (max-width: 380px) {
+  .view-switch a { padding: 9px 8px; font-size: 9px; }
+  .topbar-inner { gap: 8px; }
+}

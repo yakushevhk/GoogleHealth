@@ -53,11 +53,12 @@ const { page = 'day' } = Astro.props;
 <QuickWriteModal />
 
 <script>
-  import { loadSummary } from '@lib/store';
+  import { loadSummary, loadStatus } from '@lib/store';
   import { $, addDaysClient, fetchJson, fmtDateDot, todayLocal } from '@lib/ui';
   import type { PairedDevice } from '@lib/gh-types';
+  import { readSettings, updateSettings } from '@lib/settings';
 
-  const page = document.querySelector('.topbar')?.getAttribute('data-page') ?? 'day';
+  const page = document.querySelector('.topbar')?.getAttribute('data-page') ?? 'day'
 
   $('#quick-add-btn')?.addEventListener('click', () => {
     window.openQuickWriteModal?.('weight');
@@ -123,26 +124,49 @@ const { page = 'day' } = Astro.props;
 
     const autoParam = new URLSearchParams(location.search).get('autorefresh');
     autoChk.checked = autoParam !== '0';
+    // Auto-refresh interval is now user-configurable (Dashboard settings);
+    // persists across sessions. 0 = off.
+    const settings = readSettings(window.localStorage);
+    const refreshSec = settings.refreshSec > 0 ? settings.refreshSec : 0;
+    if (refreshSec === 0) autoChk.checked = false;
+
     let timer: ReturnType<typeof setInterval> | null = null;
     const scheduleAuto = (): void => {
       if (timer) clearInterval(timer);
-      if (autoChk.checked) {
+      const sec = readSettings(window.localStorage).refreshSec;
+      if (autoChk.checked && sec > 0) {
         timer = setInterval(() => {
           // Past days are immutable — don't waste quota and don't trigger cards.
           if (date >= today) void loadSummary(date);
-        }, 60_000);
+        }, sec * 1000);
       }
     };
-    autoChk.addEventListener('change', scheduleAuto);
+    autoChk.addEventListener('change', () => {
+      updateSettings(window.localStorage, { refreshSec: autoChk.checked ? 60 : 0 });
+      scheduleAuto();
+    });
     scheduleAuto();
     // Manual refresh: re-read today's data immediately (e.g. right after a
     // modal write or when the connection recovers). Past days are immutable —
     // refreshing would only waste quota, so it's limited to today.
     $('#gh-refresh-btn')?.addEventListener('click', () => {
       if (date >= today) {
-        void loadSummary(date);
-        void loadIdentity();
+        const btn = $('#gh-refresh-btn');
+        btn?.classList.add('spinning');
+        void Promise.all([loadSummary(date), loadIdentity(), loadStatus(true)])
+          .catch(() => undefined)
+          .finally(() => btn?.classList.remove('spinning'));
       }
+    });
+
+    // Keyboard shortcuts: ←/→ day, r refresh, t today.
+    window.addEventListener('keydown', (e) => {
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === 'ArrowLeft') setDate(addDaysClient(date, -1));
+      else if (e.key === 'ArrowRight') setDate(addDaysClient(date, 1));
+      else if (e.key.toLowerCase() === 'r') {
+        if (date >= today) $('#gh-refresh-btn')?.click();
+      } else if (e.key.toLowerCase() === 't') setDate(todayLocal());
     });
     setDate(date);
   } else {
@@ -208,6 +232,17 @@ const { page = 'day' } = Astro.props;
   .tb-btn.ghost-btn:active {
     color: var(--text);
     background: var(--panel-2);
+  }
+  .tb-btn.ghost-btn.spinning {
+    pointer-events: none;
+    opacity: 0.7;
+    animation: gh-spin 0.9s linear infinite;
+  }
+  @keyframes gh-spin {
+    to { transform: rotate(360deg); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .tb-btn.ghost-btn.spinning { animation: none; }
   }
   .quick-add-btn {
     background: var(--text);

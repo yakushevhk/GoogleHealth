@@ -51,7 +51,21 @@ import DevicesFooter from '../components/DevicesFooter.astro';
     </main>
     <script>
       import { initReveal } from '@lib/ui';
+      import { CARD_IDS, readSettings } from '@lib/settings';
       initReveal();
+
+      // Apply saved dashboard settings: hide/show cards and compact mode.
+      const applySettings = (): void => {
+        const s = readSettings(window.localStorage);
+        document.body.classList.toggle('compact', s.compact);
+        for (const id of CARD_IDS) {
+          const el = document.getElementById(id === 'vitals' ? 'vitals' : `${id}-card`);
+          if (el) el.hidden = !s.visible[id];
+        }
+      };
+      applySettings();
+      // Re-apply when settings change (e.g. from a settings panel elsewhere).
+      window.addEventListener('gh:settings', applySettings);
     </script>
   </body>
 </html>
