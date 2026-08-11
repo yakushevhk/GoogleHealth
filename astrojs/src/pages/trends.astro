@@ -133,7 +133,9 @@ import DevicesFooter from '../components/DevicesFooter.astro';
             <span class="card-title" style="color:var(--violet)">Sleep by night</span>
             <span class="label">duration + bedtime</span>
           </div>
-          <div class="chart chart-sleep-trend" id="chart-sleep-nights"></div>
+          <div class="chart chart-sleep-trend" id="chart-sleep-nights" role="img" aria-label="Sleep duration and bedtime by night">
+            <span class="chart-sr visually-hidden">No sleep data.</span>
+          </div>
           <div class="rhythm-note" id="slp-rhythm"></div>
         </section>
 
@@ -142,7 +144,9 @@ import DevicesFooter from '../components/DevicesFooter.astro';
             <span class="card-title" style="color:var(--green)">Steps by day</span>
             <span class="label">goal 10,000</span>
           </div>
-          <div class="chart chart-steps-trend" id="chart-steps"></div>
+          <div class="chart chart-steps-trend" id="chart-steps" role="img" aria-label="Steps by day with 10,000 goal">
+            <span class="chart-sr visually-hidden">No steps data.</span>
+          </div>
           <div class="streak-note" id="steps-streak"></div>
         </section>
 
@@ -152,7 +156,9 @@ import DevicesFooter from '../components/DevicesFooter.astro';
             <span class="label">30 days</span>
           </div>
           <div class="nd-nums" id="nd-nums"></div>
-          <div class="chart chart-nd" id="chart-hrv-nd"></div>
+          <div class="chart chart-nd" id="chart-hrv-nd" role="img" aria-label="Heart rate variability at night vs daytime">
+            <span class="chart-sr visually-hidden">No HRV night/day data.</span>
+          </div>
         </section>
 
         <section class="panel card reveal b-heart" style="--i:6">
@@ -165,15 +171,21 @@ import DevicesFooter from '../components/DevicesFooter.astro';
 
         <section class="panel card reveal b-trio" style="--i:7">
           <div class="card-head"><span class="card-title" style="color:var(--teal)">HRV</span></div>
-          <div class="chart chart-trio" id="chart-hrv"></div>
+          <div class="chart chart-trio" id="chart-hrv" role="img" aria-label="Heart rate variability trend">
+            <span class="chart-sr visually-hidden">No HRV data.</span>
+          </div>
         </section>
         <section class="panel card reveal b-trio" style="--i:8">
           <div class="card-head"><span class="card-title" style="color:var(--pink)">Resting HR</span></div>
-          <div class="chart chart-trio" id="chart-rhr"></div>
+          <div class="chart chart-trio" id="chart-rhr" role="img" aria-label="Resting heart rate trend">
+            <span class="chart-sr visually-hidden">No resting HR data.</span>
+          </div>
         </section>
         <section class="panel card reveal b-trio" style="--i:9">
           <div class="card-head"><span class="card-title" style="color:var(--sky)">SpO₂</span></div>
-          <div class="chart chart-trio" id="chart-spo2"></div>
+          <div class="chart chart-trio" id="chart-spo2" role="img" aria-label="Blood oxygen saturation trend">
+            <span class="chart-sr visually-hidden">No SpO₂ data.</span>
+          </div>
         </section>
 
         <section class="panel card reveal b-heart" style="--i:10">
@@ -181,7 +193,9 @@ import DevicesFooter from '../components/DevicesFooter.astro';
             <span class="card-title" style="color:var(--amber)">Load</span>
             <span class="label">active kcal by day</span>
           </div>
-          <div class="chart chart-load" id="chart-load"></div>
+          <div class="chart chart-load" id="chart-load" role="img" aria-label="Active calories burned by day">
+            <span class="chart-sr visually-hidden">No load data.</span>
+          </div>
         </section>
 
         <section class="panel card reveal b-body" style="--i:11">
@@ -189,7 +203,9 @@ import DevicesFooter from '../components/DevicesFooter.astro';
             <span class="card-title" style="color:var(--amber)">Weight</span>
             <span class="label">90 days</span>
           </div>
-          <div class="chart chart-weight" id="chart-weight"></div>
+          <div class="chart chart-weight" id="chart-weight" role="img" aria-label="Weight over 90 days">
+            <span class="chart-sr visually-hidden">No weight data.</span>
+          </div>
           <div class="weight-log" id="tr-weight-log"></div>
         </section>
       </div>
@@ -215,7 +231,7 @@ import DevicesFooter from '../components/DevicesFooter.astro';
         stdDev,
         weekOverWeekPct,
       } from '@lib/stats';
-      import { $, countUp, fetchJson, fmt, fmtDuration, initReveal } from '@lib/ui';
+      import { $, countUp, fetchJson, fmt, fmtDuration, initReveal, setChartSummary } from '@lib/ui';
 
       initReveal();
 
@@ -511,6 +527,12 @@ import DevicesFooter from '../components/DevicesFooter.astro';
             },
           ],
         }, true);
+        setChartSummary(
+          $('#chart-hrv-nd'),
+          nightAvg !== null
+            ? `Heart rate variability: ${fmt(nightAvg)} ms at night, ${fmt(dayAvg)} ms daytime.`
+            : 'No HRV night/day data for this period.',
+        );
 
         // ── Records ──
         $('#rec-period')!.textContent = `${days} days`;
@@ -652,6 +674,13 @@ import DevicesFooter from '../components/DevicesFooter.astro';
           ],
         }, true);
 
+        setChartSummary(
+          $('#chart-sleep-nights'),
+          sleepS.length
+            ? `Sleep by night: ${sleepS.length} nights, average ${fmt(sleepS.reduce((a, s) => a + ((s.asleepMinutes ?? 0) / 60), 0) / sleepS.length, 1)} hours.`
+            : 'No sleep data for this period.',
+        );
+
         // ── Steps ──
         stepsChart.setOption({
           ...baseOpts(),
@@ -687,10 +716,30 @@ import DevicesFooter from '../components/DevicesFooter.astro';
           ],
         }, true);
 
+        setChartSummary(
+          $('#chart-steps'),
+          stepsP.length
+            ? `Steps by day: total ${fmt(stepsP.reduce((a, p) => a + (p.sum ?? 0), 0))} over ${stepsP.length} days.`
+            : 'No steps data for this period.',
+        );
+
         // ── Trend trio ──
         hrvChart.setOption(lineOpts(hrvP.map((p) => p.date ?? ''), hrvP.map((p) => p.avg ?? null), GRAY_LT, 'ms'), true);
         rhrChart.setOption(lineOpts(rhrP.map((p) => p.date ?? ''), rhrP.map((p) => p.avg ?? null), RED, 'bpm'), true);
         spo2Chart.setOption(lineOpts(spo2P.map((p) => p.date ?? ''), spo2P.map((p) => p.avg ?? null), WHITE, '%'), true);
+        const avgOf = (pts: Pt[]) => mean(pts.map((p) => p.avg).filter((v): v is number => v !== undefined));
+        setChartSummary(
+          $('#chart-hrv'),
+          hrvP.length ? `Heart rate variability: average ${fmt(avgOf(hrvP), 1)} ms over ${hrvP.length} days.` : 'No HRV data for this period.',
+        );
+        setChartSummary(
+          $('#chart-rhr'),
+          rhrP.length ? `Resting heart rate: average ${fmt(avgOf(rhrP))} bpm over ${rhrP.length} days.` : 'No resting heart rate data for this period.',
+        );
+        setChartSummary(
+          $('#chart-spo2'),
+          spo2P.length ? `Blood oxygen saturation: average ${fmt(avgOf(spo2P), 1)}% over ${spo2P.length} days.` : 'No oxygen saturation data for this period.',
+        );
 
         // ── Load ──
         loadChart.setOption({
@@ -717,6 +766,12 @@ import DevicesFooter from '../components/DevicesFooter.astro';
             },
           ],
         }, true);
+        setChartSummary(
+          $('#chart-load'),
+          kcalP.length
+            ? `Load: total ${fmt(kcalP.reduce((a, p) => a + (p.sum ?? 0), 0))} active kcal over ${kcalP.length} days.`
+            : 'No load data for this period.',
+        );
 
         // ── Weight ──
         const wPts = weightP.filter(
@@ -748,6 +803,12 @@ import DevicesFooter from '../components/DevicesFooter.astro';
             },
           ],
         }, true);
+        setChartSummary(
+          $('#chart-weight'),
+          wPts.length
+            ? `Weight: ${wPts.length} measurements, from ${fmt(Math.min(...wPts.map((p) => p.avg)), 1)} to ${fmt(Math.max(...wPts.map((p) => p.avg)), 1)} kg.`
+            : 'No weight data for this period.',
+        );
         $('#tr-weight-log')!.innerHTML = wPts
           .slice()
           .reverse()

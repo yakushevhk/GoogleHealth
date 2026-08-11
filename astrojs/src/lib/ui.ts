@@ -46,16 +46,17 @@ export async function fetchJson<T>(url: string, opts: FetchOpts = {}): Promise<T
     const pending = inflight.get(url);
     if (pending) return pending as Promise<T>;
 
-    const promise = doFetch(url)
-      .then((value) => {
+    const promise: Promise<T> = doFetch<T>(url).then(
+      (value: T) => {
         getCache.set(url, { value, expires: Date.now() + GET_CACHE_TTL_MS });
         inflight.delete(url);
         return value;
-      })
-      .catch((err) => {
+      },
+      (err: unknown) => {
         inflight.delete(url);
         throw err;
-      });
+      },
+    );
 
     inflight.set(url, promise);
     return promise;
@@ -315,4 +316,33 @@ export function initReveal(): void {
     { threshold: 0.08 },
   );
   els.forEach((el) => io.observe(el));
+}
+
+/**
+ * Defer an expensive callback until an element becomes visible in the viewport.
+ *
+ * Canvas charts below the fold don't need to be drawn on page load; this lets a
+ * component wait before initializing ECharts until the user scrolls to it,
+ * keeping the first paint cheap. Callback fires at most once. Falls back to
+ * immediate execution when IntersectionObserver is unavailable or the user
+ * prefers reduced motion (no point delaying work that won't animate anyway).
+ */
+export function whenVisible(el: Element, cb: () => void): void {
+  if (prefersReducedMotion() || typeof IntersectionObserver === 'undefined') {
+    cb();
+    return;
+  }
+  const io = new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) {
+          io.disconnect();
+          cb();
+          break;
+        }
+      }
+    },
+    { rootMargin: '120px' },
+  );
+  io.observe(el);
 }

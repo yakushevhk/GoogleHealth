@@ -57,7 +57,9 @@ export function loadSummary(date: string): Promise<void> {
   }
   inflight = (async () => {
     try {
-      const fresh = await fetchJson<DaySummary>(`/api/summary?date=${date}`);
+      const fresh = await fetchJson<DaySummary>(`/api/summary?date=${date}`, {
+        bypassCache: true,
+      });
       if (date === currentDate) {
         prev = current;
       } else {
@@ -96,7 +98,9 @@ export async function loadPrevDaySummary(date: string): Promise<DaySummary | nul
     const pd = new Date(y, m - 1, d - 1);
     const pad = (x: number) => String(x).padStart(2, '0');
     const prevDate = `${pd.getFullYear()}-${pad(pd.getMonth() + 1)}-${pad(pd.getDate())}`;
-    const s = await fetchJson<DaySummary>(`/api/summary?date=${prevDate}`);
+    const s = await fetchJson<DaySummary>(`/api/summary?date=${prevDate}`, {
+      bypassCache: true,
+    });
     prevDayCache.set(date, s);
     return s;
   } catch {

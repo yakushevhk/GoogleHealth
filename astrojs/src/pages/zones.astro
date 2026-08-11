@@ -46,7 +46,9 @@ import DevicesFooter from '../components/DevicesFooter.astro';
           <span class="label">minutes by day, stacked by zone</span>
         </div>
         <div class="zone-legend" id="tz-legend"></div>
-        <div class="chart chart-zone-stack" id="chart-time-in-zone"></div>
+        <div class="chart chart-zone-stack" id="chart-time-in-zone" role="img" aria-label="Time spent in each heart rate zone by day, 30 days">
+          <span class="chart-sr visually-hidden">No time-in-zone data.</span>
+        </div>
       </section>
 
       <section class="panel card reveal b-full" style="--i:2">
@@ -54,7 +56,9 @@ import DevicesFooter from '../components/DevicesFooter.astro';
           <span class="card-title" style="color:var(--green)">Active zone minutes</span>
           <span class="label">fat burn + cardio + peak by day</span>
         </div>
-        <div class="chart chart-zone-bar" id="chart-active-zone-min"></div>
+        <div class="chart chart-zone-bar" id="chart-active-zone-min" role="img" aria-label="Active zone minutes by day">
+          <span class="chart-sr visually-hidden">No active zone minutes data.</span>
+        </div>
       </section>
 
       <section class="panel card reveal b-full" style="--i:3">
@@ -63,7 +67,9 @@ import DevicesFooter from '../components/DevicesFooter.astro';
           <span class="label">kcal by day, stacked by zone</span>
         </div>
         <div class="zone-legend" id="cz-legend"></div>
-        <div class="chart chart-zone-stack" id="chart-cal-by-zone"></div>
+        <div class="chart chart-zone-stack" id="chart-cal-by-zone" role="img" aria-label="Calories burned in each heart rate zone by day">
+          <span class="chart-sr visually-hidden">No calorie-by-zone data.</span>
+        </div>
       </section>
       <DevicesFooter />
     </main>
@@ -72,7 +78,7 @@ import DevicesFooter from '../components/DevicesFooter.astro';
       import { baseOpts, initChart, timeAxis, valueAxis, LABEL_COLOR, RED, WHITE } from '@lib/charts';
       import { totalOf } from '@lib/extract';
       import { hrZoneDistribution } from '@lib/stats';
-      import { $, esc, fmt, initReveal } from '@lib/ui';
+      import { $, esc, fmt, initReveal, setChartSummary } from '@lib/ui';
 
       initReveal();
 
@@ -242,6 +248,10 @@ import DevicesFooter from '../components/DevicesFooter.astro';
 
           buildLegend('#tz-legend', zoneKeys);
           timeChart.setOption(stackedZoneOpts(dates, zoneKeys, dataByZone, 'min'), true);
+          setChartSummary(
+            $('#chart-time-in-zone'),
+            `Time in HR zones over ${timePoints.length} days, zones: ${zoneKeys.map((z) => ZONE_LABELS[z] ?? z).join(', ')}.`,
+          );
         }
 
         // ── Active Zone Minutes (single bar) ──
@@ -275,6 +285,14 @@ import DevicesFooter from '../components/DevicesFooter.astro';
             },
           ],
         }, true);
+        const azmTotal = activePoints.reduce(
+          (sum, p) => sum + (totalOf({ sum: p.sum, zones: p.zones }) ?? 0),
+          0,
+        );
+        setChartSummary(
+          $('#chart-active-zone-min'),
+          `Active zone minutes: total ${fmt(azmTotal)} minutes over ${activePoints.length} days.`,
+        );
 
         // ── Calories by Zone (stacked bar) ──
         const calPoints = val(calRes)?.points ?? [];
@@ -294,6 +312,10 @@ import DevicesFooter from '../components/DevicesFooter.astro';
 
           buildLegend('#cz-legend', zoneKeys);
           calChart.setOption(stackedZoneOpts(dates, zoneKeys, dataByZone, 'kcal'), true);
+          setChartSummary(
+            $('#chart-cal-by-zone'),
+            `Calories by HR zone over ${calPoints.length} days, zones: ${zoneKeys.map((z) => ZONE_LABELS[z] ?? z).join(', ')}.`,
+          );
         }
       }
 

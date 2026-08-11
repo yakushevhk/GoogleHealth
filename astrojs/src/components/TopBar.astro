@@ -35,6 +35,13 @@ const { page = 'day' } = Astro.props;
 
   <div class="topbar-right">
     <button id="quick-add-btn" class="quick-add-btn">+ Entry</button>
+    <button
+      id="gh-refresh-btn"
+      class="tb-btn ghost-btn"
+      type="button"
+      title="Refresh data"
+      aria-label="Refresh data"
+    >⟳</button>
     <span class="conn-error" id="gh-conn-error" hidden>no connection to Google Health</span>
     <label class="autorefresh" hidden={page !== 'day'}>
       <input type="checkbox" id="gh-autorefresh" checked /> auto 60 s
@@ -128,6 +135,15 @@ const { page = 'day' } = Astro.props;
     };
     autoChk.addEventListener('change', scheduleAuto);
     scheduleAuto();
+    // Manual refresh: re-read today's data immediately (e.g. right after a
+    // modal write or when the connection recovers). Past days are immutable —
+    // refreshing would only waste quota, so it's limited to today.
+    $('#gh-refresh-btn')?.addEventListener('click', () => {
+      if (date >= today) {
+        void loadSummary(date);
+        void loadIdentity();
+      }
+    });
     setDate(date);
   } else {
     document.documentElement.dataset.ghDate = todayLocal();
@@ -174,6 +190,25 @@ const { page = 'day' } = Astro.props;
     transform: translateY(-50%);
   }
   .view-switch a.on { padding-left: 15px; }
+  .tb-btn.ghost-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    border-radius: 2px;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 6px 10px;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+  .tb-btn.ghost-btn:hover {
+    color: var(--text);
+    border-color: var(--border-hover);
+  }
+  .tb-btn.ghost-btn:active {
+    color: var(--text);
+    background: var(--panel-2);
+  }
   .quick-add-btn {
     background: var(--text);
     color: #000;

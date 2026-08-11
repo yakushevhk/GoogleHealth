@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+#### Web Dashboard (Astro.js)
+- Manual refresh button in the top bar (immediate re-fetch of today's data, e.g. after a write or connection recovery)
+- Screen-reader support for canvas charts: `role="img"` + `aria-label` plus a visually-hidden textual summary (HR, HRV, SpO₂, sleep, body, zones, trends) updated from real loaded data
+
+#### Performance
+- Client-side GET memoization with single-flight deduplication: identical or short-lived repeated requests (heart-rate intraday fetched by several cards with different windows, date switches, auto-refresh) no longer hit the server twice within a short TTL
+- `whenVisible()` utility to defer expensive chart initialization until an element scrolls into view (ready for lazy-render use)
+
+### Fixed
+- `astro check` (typecheck) failed with 53 TS errors due to unescaped apostrophes in test descriptions (`tests/ui.test.ts`, `tests/store.test.ts`) — quotes escaped, typecheck now clean
+- CI: the Dashboard (Astro.js) job now runs `npm run check` in addition to tests and build, so type errors are caught in CI
+
 ## [0.2.0] - 2026-08-09
 
 ### Added

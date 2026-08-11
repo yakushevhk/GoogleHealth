@@ -52,4 +52,4 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - run: cd astrojs && npm ci && npm test && npm run build
+      - run: cd astrojs && npm ci && npm run check && npm test && npm run build
