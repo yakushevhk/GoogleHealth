@@ -2,7 +2,7 @@
 # The dashboard proxies Google Health server-side; it does NOT need the Rust MCP.
 
 # 1) install + check + test + build
-FROM node:20-slim AS build
+FROM node:26-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -10,7 +10,7 @@ COPY . .
 RUN npm run check && npm test && npm run build
 
 # 2) minimal runtime with a non-root user
-FROM node:20-slim AS runtime
+FROM node:26-slim AS runtime
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=4321
 WORKDIR /app
 COPY --from=build /app/package.json /app/package-lock.json ./
