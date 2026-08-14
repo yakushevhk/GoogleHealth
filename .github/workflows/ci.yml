@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
       - run: cd py && pip install -e . && GOOGLE_CLIENT_ID=test GOOGLE_CLIENT_SECRET=test GOOGLE_REFRESH_TOKEN=test python3 -c "from src.server import *; print('OK')"
