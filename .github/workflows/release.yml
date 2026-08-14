@@ -17,7 +17,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --release
       - name: Upload Rust binary
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: target/release/google-health-mcp
 
@@ -27,7 +27,7 @@ jobs:
           go-version: '1.23'
       - run: cd go && CGO_ENABLED=0 go build -o googlehealth-mcp-go .
       - name: Upload Go binary
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: go/googlehealth-mcp-go
 
@@ -37,6 +37,6 @@ jobs:
           python-version: '3.11'
       - run: cd py && pip install build && python3 -m build
       - name: Upload Python package
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: py/dist/*
