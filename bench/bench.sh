@@ -4,8 +4,11 @@
 set -e
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cleanup() { kill "${RUST_PID:-}" "${GO_PID:-}" 2>/dev/null || true; }
+trap cleanup EXIT
+
 RUST_BIN="$ROOT/target/release/google-health-mcp"
-GO_BIN="$ROOT/target/go-mcp-bench"
+GO_BIN="$ROOT/go/googlehealth-mcp-go"
 RUST_PORT=19871
 GO_PORT=19872
 RESULTS="$ROOT/bench/results.txt"

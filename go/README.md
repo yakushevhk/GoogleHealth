@@ -25,7 +25,7 @@ go run . --http
 | `GOOGLE_CLIENT_ID` | Yes | — | OAuth client ID |
 | `GOOGLE_CLIENT_SECRET` | Yes | — | OAuth client secret |
 | `GOOGLE_REFRESH_TOKEN` | Yes | — | OAuth refresh token |
-| `MCP_API_KEY` | — | `change-me` | API key for HTTP mode |
+| `MCP_API_KEY` | Yes* | — | API key for HTTP mode (*required when using `--http`) |
 | `HOST` | — | `127.0.0.1` | HTTP server bind address |
 | `PORT` | — | `3000` | HTTP server port |
 
@@ -181,13 +181,13 @@ Performance difference is negligible — both are bottlenecked by the upstream G
 
 ```bash
 # Standard
-go build -o google-health-mcp .
+go build -o googlehealth-mcp-go .
 
 # Optimized (stripped)
-go build -ldflags="-s -w" -o google-health-mcp .
+go build -ldflags="-s -w" -o googlehealth-mcp-go .
 
 # Cross-compile for Linux (server)
-GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o google-health-mcp-linux .
+GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o googlehealth-mcp-go-linux .
 ```
 
 ## Dependencies

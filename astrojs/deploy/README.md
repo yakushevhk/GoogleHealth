@@ -6,7 +6,7 @@ to it under **Basic Auth**; `/mcp` and `/health` remain with the MCP server.
 
 ## Prerequisites on the server
 
-- **Node.js 18+** (in aaPanel: App Store -> PM2 Manager installs Node)
+- **Node.js 22+** (Astro 7 requires ≥ 22.12; in aaPanel: App Store -> PM2 Manager installs Node)
 - `htpasswd` (installed automatically: apache2-utils / httpd-tools)
 
 ## Automatic (2 commands)

@@ -12,6 +12,7 @@
 /zig/.zig-cache
 /zig/zig-out
 __pycache__/
+/.pytest_cache/
 *.egg-info/
 *.pyc
 /c/google-health-mcp

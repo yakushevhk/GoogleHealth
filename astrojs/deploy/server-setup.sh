@@ -13,7 +13,13 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ── 1. Node.js ──
 if ! command -v node >/dev/null 2>&1; then
-  echo "ERROR: node not found. Install Node.js 18+ (in aaPanel: App Store → PM2 Manager)."
+  echo "ERROR: node not found. Install Node.js 22.12+ (in aaPanel: App Store → PM2 Manager)."
+  exit 1
+fi
+NODE_MAJOR=$(node -p "process.versions.node.split('.')[0]")
+NODE_MINOR=$(node -p "process.versions.node.split('.')[1]")
+if [[ "$NODE_MAJOR" -lt 22 || ( "$NODE_MAJOR" -eq 22 && "$NODE_MINOR" -lt 12 ) ]]; then
+  echo "ERROR: Node.js $(node -v) detected; Astro 7 requires >=22.12. Install Node.js 22.12+ and retry."
   exit 1
 fi
 echo "node: $(node -v)"

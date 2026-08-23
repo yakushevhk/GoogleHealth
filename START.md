@@ -8,11 +8,11 @@ For an overview of all implementations (Rust, Go, TypeScript, Python, C, Zig, As
 
 ## What This Is
 
-An MCP (Model Context Protocol) server that provides full read/write access to the **Google Health API v4**. It exposes 35 tools, 4 resources, 3 prompts, and supports 39 health data types.
+An MCP (Model Context Protocol) server that provides full read access to the **Google Health API v4**. It exposes 35 tools, 4 resources, 3 prompts, and supports 39 health data types.
 
 **Key capabilities:**
 - Daily health summaries (~34 metrics fetched in parallel)
-- Read/write for all Google Health data types (steps, heart rate, sleep, exercise, weight, SpO2, HRV, etc.)
+- Read for all 39 data types; write support for sleep, exercise, weight, height, body fat, nutrition, and other writable types
 - OAuth2 token management with auto-refresh, retry with backoff, and single-flight gate
 - In-memory response cache (120s TTL, cleared on writes)
 - Two transport modes: **stdio** (local MCP clients) and **HTTP/SSE** (production)
@@ -21,7 +21,7 @@ An MCP (Model Context Protocol) server that provides full read/write access to t
 
 ## Prerequisites
 
-- **Rust 1.75+** (edition 2021) — install via [rustup.rs](https://rustup.rs)
+- **Rust 1.80+** (edition 2021) — install via [rustup.rs](https://rustup.rs)
 - **Google account** with health data (Fitbit, Pixel Watch, etc.)
 - **Google Cloud project** with billing enabled (free tier is sufficient)
 

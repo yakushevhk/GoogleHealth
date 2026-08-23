@@ -1,6 +1,6 @@
-.PHONY: build test lint clean docker release
+.PHONY: build test lint clean docker docker-stop bench test-py
 
-# ── Build all implementations ────────────────────────────────────────────────
+# ── Build full-parity implementations (Rust, Go, TS, Python) ────────────────────────────────────────────────
 
 build: build-rust build-go build-ts build-py
 
@@ -11,14 +11,14 @@ build-go:
 	cd go && go build -o googlehealth-mcp-go .
 
 build-ts:
-	cd ts && bun install
+	cd ts && bun install --frozen-lockfile
 
 build-py:
 	cd py && pip install -e .
 
 # ── Run all tests ───────────────────────────────────────────────────────────
 
-test: test-rust test-go test-ts test-astro
+test: test-rust test-go test-ts test-py test-astro
 
 test-rust:
 	cargo test
@@ -27,10 +27,12 @@ test-go:
 	cd go && go test ./... -v
 
 test-ts:
-	cd ts && bun test || echo "No tests yet"
+	cd ts && GOOGLE_CLIENT_ID=test GOOGLE_CLIENT_SECRET=test GOOGLE_REFRESH_TOKEN=test bun -e "import('./src/index.ts').then(() => console.log('OK')).catch(() => process.exit(1))"
 
 test-astro:
 	cd astrojs && npm test
+test-py:
+	cd py && GOOGLE_CLIENT_ID=test GOOGLE_CLIENT_SECRET=test GOOGLE_REFRESH_TOKEN=test python3 -c "from src.server import *; print('OK')"
 
 # ── Lint ────────────────────────────────────────────────────────────────────
 
@@ -58,3 +60,7 @@ docker:
 
 docker-stop:
 	docker compose down
+# ── Benchmark ───────────────────────────────────────────────────────────────
+
+bench: build-rust build-go
+	bash bench/bench.sh

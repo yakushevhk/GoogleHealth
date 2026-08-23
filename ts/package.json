@@ -10,7 +10,6 @@
     "start:http": "bun run src/index.ts --http"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.0",
-    "zod": "^4.4.3"
+    "@modelcontextprotocol/sdk": "^1.12.0"
   }
 }

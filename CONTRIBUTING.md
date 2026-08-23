@@ -16,8 +16,8 @@ Thank you for your interest in contributing! This project provides MCP (Model Co
 
 ### Prerequisites
 
-- **Rust 1.75+** — for the reference implementation
-- **Go 1.23+** — for the Go implementation
+- **Rust 1.80+** — for the reference implementation
+- **Go 1.25+** — for the Go implementation
 - **Bun** — for the TypeScript implementation
 - **Python 3.11+** — for the Python implementation
 - **Zig 0.16** — for the Zig PoC
@@ -32,19 +32,13 @@ cargo test
 # Go
 cd go && go test ./... -v
 
-# TypeScript
-cd ts && bun test
-
-# Python
-cd py && python3 -m pytest
-
 # Dashboard (Astro.js)
 cd astrojs && npm test
 ```
 
 ## Project Structure
 
-The reference implementation is in **Rust** (`src/`). All other implementations (Go, TypeScript, Python, Zig, C) must maintain parity with the Rust version.
+The reference implementation is in **Rust** (`src/`). All other implementations (Go, TypeScript, Python, Zig, C) must maintain parity with the Rust version.Go, TypeScript, and Python must maintain 1:1 parity with the Rust version. C and Zig are partial/PoC implementations; align them with Rust where implemented.
 
 ```
 src/        # Rust (reference) — 35 tools, 39 types
@@ -53,7 +47,7 @@ ts/         # TypeScript (Bun) — full parity
 py/         # Python — full parity
 zig/        # Zig — PoC (10 tools)
 c/          # C — partial
-astrojs/    # Web dashboard (read-only)
+astrojs/    # Web dashboard (read + write)
 ```
 
 ## Parity Requirements

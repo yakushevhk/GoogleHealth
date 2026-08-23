@@ -20,7 +20,7 @@ Copy `.env.example` → `.env` and fill in:
 | `GOOGLE_CLIENT_ID` | Yes | OAuth client ID |
 | `GOOGLE_CLIENT_SECRET` | Yes | OAuth client secret |
 | `GOOGLE_REFRESH_TOKEN` | Yes | OAuth refresh token |
-| `MCP_API_KEY` | — | API key for HTTP mode (default: `change-me`) |
+| `MCP_API_KEY` | Yes* | API key for HTTP mode (*required when using `--http`) |
 | `HOST` | — | Bind address (default: `127.0.0.1`) |
 | `PORT` | — | Bind port (default: `3000`) |
 

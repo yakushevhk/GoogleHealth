@@ -22,7 +22,7 @@ python3 -m src.server --http
 | `GOOGLE_CLIENT_ID` | Yes | OAuth client ID |
 | `GOOGLE_CLIENT_SECRET` | Yes | OAuth client secret |
 | `GOOGLE_REFRESH_TOKEN` | Yes | OAuth refresh token |
-| `MCP_API_KEY` | — | API key for HTTP mode (default: `change-me`) |
+| `MCP_API_KEY` | Yes* | API key for HTTP mode (*required when using `--http`) |
 | `HOST` | — | Bind address (default: `127.0.0.1`) |
 | `PORT` | — | Bind port (default: `3000`) |
 
@@ -43,6 +43,6 @@ py/
 
 - Python 3.11+
 - `asyncio` + `httpx` (async HTTP client)
-- `mcp` 1.9+ (MCPServer, stdio + StreamableHTTP)
+- `mcp` 2.x (MCPServer, stdio + StreamableHTTP)
 - `asyncio.Lock` for single-flight token refresh
 - `asyncio.gather` for concurrent metric fetching

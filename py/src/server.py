@@ -1,6 +1,7 @@
 """MCP server entry point — stdio and HTTP modes. MCP SDK 2.0 API."""
 
 import asyncio
+import hmac
 import os
 import sys
 import json
@@ -9,6 +10,9 @@ from typing import Any
 from mcp.server import MCPServer
 from mcp.types import Tool as MCPTool, TextContent, CallToolResult
 from mcp_types import ToolAnnotations
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from .auth import AuthState
 from .tools import TOOL_HANDLERS
@@ -563,9 +567,40 @@ def prompt_workout_summary(days: str = "7") -> str:
 
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
+class ApiKeyMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, api_key: str):
+        super().__init__(app)
+        self._api_key = api_key.encode()
+
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path == "/health":
+            return await call_next(request)
+        auth_header = request.headers.get("authorization", "")
+        # RFC 7235: the auth scheme is case-insensitive; strip a leading "bearer "
+        token = auth_header[7:] if auth_header[:7].lower() == "bearer " else auth_header
+        token = token.encode()
+        if not token or not hmac.compare_digest(token, self._api_key):
+            return JSONResponse({"error": "Invalid API key"}, status_code=401)
+        return await call_next(request)
+
+
+async def health(request: Request):
+    return JSONResponse({"status": "ok"})
+
+
 def main():
     if "--http" in sys.argv:
-        asyncio.run(server.run_streamable_http_async(host=os.environ.get("HOST", "127.0.0.1"), port=int(os.environ.get("PORT", "3000"))))
+        api_key = os.environ.get("MCP_API_KEY")
+        if not api_key:
+            print("MCP_API_KEY env var required for HTTP mode", file=sys.stderr)
+            sys.exit(1)
+        host = os.environ.get("HOST", "127.0.0.1")
+        port = int(os.environ.get("PORT", "3000"))
+        app = server.streamable_http_app(host=host)
+        app.add_route("/health", health)
+        app.add_middleware(ApiKeyMiddleware, api_key=api_key)
+        import uvicorn
+        uvicorn.run(app, host=host, port=port, log_level="info")
     else:
         asyncio.run(server.run_stdio_async())
 

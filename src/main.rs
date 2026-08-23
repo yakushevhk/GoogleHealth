@@ -404,7 +404,10 @@ async fn main() -> SdkResult<()> {
     if http_mode {
         let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".into());
         let port: u16 = std::env::var("PORT").unwrap_or_else(|_| "3000".into()).parse().unwrap_or(3000);
-        let api_key = std::env::var("MCP_API_KEY").unwrap_or_else(|_| "change-me".into());
+        let api_key = std::env::var("MCP_API_KEY").unwrap_or_else(|_| {
+            eprintln!("MCP_API_KEY env var required for HTTP mode");
+            std::process::exit(1);
+        });
         eprintln!("Starting HTTP/SSE server on {host}:{port}");
         let auth_provider = Arc::new(StaticTokenAuth { token: api_key });
         // DNS-rebinding protection (enabled by default in SDK 1.0): explicit

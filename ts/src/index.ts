@@ -1,5 +1,6 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { timingSafeEqual } from "crypto";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -121,7 +122,8 @@ const httpMode = process.argv.includes("--http");
 if (httpMode) {
   const host = process.env.HOST || "127.0.0.1";
   const port = parseInt(process.env.PORT || "3000");
-  const apiKey = process.env.MCP_API_KEY || "change-me";
+  const apiKey = process.env.MCP_API_KEY;
+  if (!apiKey) { console.error("MCP_API_KEY env var required for HTTP mode"); process.exit(1); }
   console.error(`Starting HTTP server on ${host}:${port}`);
 
   const toolList = Object.entries(tools).map(([name, { description, inputSchema }]) => ({
@@ -139,8 +141,13 @@ if (httpMode) {
       const url = new URL(req.url);
       if (url.pathname === "/health") return Response.json({ status: "ok" });
 
-      const token = req.headers.get("Authorization")?.replace("Bearer ", "");
-      if (token !== apiKey) return Response.json({ error: "Invalid API key" }, { status: 401 });
+      const rawAuth = req.headers.get("Authorization") ?? "";
+      const token = rawAuth.length > 7 && rawAuth.slice(0, 7).toLowerCase() === "bearer " ? rawAuth.slice(7) : rawAuth;
+      const tokenBuf = Buffer.from(token);
+      const apiBuf = Buffer.from(apiKey);
+      if (tokenBuf.length === 0 || tokenBuf.length !== apiBuf.length || !timingSafeEqual(tokenBuf, apiBuf)) {
+        return Response.json({ error: "Invalid API key" }, { status: 401 });
+      }
 
       if (url.pathname === "/mcp" && req.method === "POST") {
         const rpc = await req.json() as any;
@@ -187,9 +194,9 @@ if (httpMode) {
           }
           case "prompts/list":
             result = { prompts: [
-              { name: "health_weekly_review", description: "Comprehensive 7-day health review" },
-              { name: "sleep_quality_analysis", description: "Detailed sleep analysis" },
-              { name: "workout_summary", description: "Exercise and HR zone breakdown" },
+              { name: "health_weekly_review", title: "Weekly Health Review", description: "Comprehensive 7-day health, sleep, and workout review", arguments: [{ name: "end_date", description: "End date in YYYY-MM-DD format (defaults to today)", required: false }] },
+              { name: "sleep_quality_analysis", title: "Sleep Quality Analysis", description: "Detailed sleep stages, HRV, and recovery analysis", arguments: [{ name: "days", description: "Number of past days to analyze (default 7)", required: false }] },
+              { name: "workout_summary", title: "Workout Summary", description: "Exercise sessions and heart rate zone breakdown", arguments: [{ name: "days", description: "Number of past days to analyze (default 7)", required: false }] },
             ]};
             break;
           case "prompts/get": {

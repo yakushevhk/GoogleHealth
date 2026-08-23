@@ -37,6 +37,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `astro check` (typecheck) failed with 53 TS errors due to unescaped apostrophes in test descriptions (`tests/ui.test.ts`, `tests/store.test.ts`) — quotes escaped, typecheck now clean
 - CI: the Dashboard (Astro.js) job now runs `npm run check` in addition to tests and build, so type errors are caught in CI
 
+### Security
+- `MCP_API_KEY` is now **required** in HTTP mode for all implementations — the `change-me` fallback is removed and servers exit(1) if the key is missing (Rust, Go, TypeScript, Python)
+- TypeScript HTTP mode now validates the API key with `crypto.timingSafeEqual` (constant-time); Python HTTP mode authenticates via Starlette middleware with `hmac.compare_digest`
+- `docker-compose.yml` no longer substitutes a default `MCP_API_KEY`
+- Added `.dockerignore` files so local `.env`/token files are never baked into Docker images
+
+### Changed
+- Python implementation requires MCP SDK 2.x (`mcp>=2.0.0`); declared `mcp-types`, `starlette`, `uvicorn` dependencies explicitly
+- Removed unused `zod` dependency from the TypeScript implementation
+- Root `Dockerfile` builder upgraded from `rust:1.75-slim` to `rust:slim` (rust-mcp-sdk MSRV is 1.80); runtime image gains `curl` so the compose healthcheck works
+- CI/release Go toolchain pin updated 1.23 → 1.25 to match `go.mod`
+- Docs: corrected stale claims — dashboard is read+write (write/patch/delete API + Quick Entry UI) with 4 pages, Zig PoC lists 10 tools but only 3 are implemented, Node ≥ 22.12 for Astro 7, Rust 1.80+, Go 1.25+
+
+### Fixed
+- `docker-compose.yml` healthcheck used `curl`, which was absent from the runtime image (container stuck "unhealthy")
+- `bench/bench.sh` referenced a Go binary path (`target/go-mcp-bench`) that nothing builds — now uses `go/googlehealth-mcp-go`
+- `Makefile` `.PHONY` declared a nonexistent `release` target
+- `.editorconfig` no longer forces spaces for `*.go` (contradicted gofmt tabs)
+#### Pre-publication audit (2026-08-23)
+- TypeScript HTTP auth: `timingSafeEqual` crashed with a 500 when a non-ASCII `MCP_API_KEY` was configured (JS length ≠ UTF-8 byte length) — now compares buffer byte lengths and returns 401 on mismatch
+- TypeScript and Python HTTP auth accept the `Bearer` scheme case-insensitively per RFC 7235 (`bearer`/`BEARER`)
+- `refresh_token.sh`: reads `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` from `.env`, portable `sed` (temp-file + mv, works on macOS BSD sed), `set -euo pipefail`
+- Rust: updated transitive `h2` 0.4.15 → 0.4.18 to fix CVE-2025-51797 / CVE-2025-51798 (HTTP/2 CONTINUATION-frame DoS)
+- TypeScript HTTP `prompts/list` now declares prompt arguments (parity with Rust); HTTP mode enforces MCP_API_KEY constant-time
+- `astrojs/deploy/server-setup.sh` enforces Node ≥ 22.12 (Astro 7 requirement) instead of accepting Node 18+
+- `bench/bench.sh`: adds `EXIT` trap so servers are killed on early failure
+- `c/README.md` honestly labels the C port as a partial implementation (informational stubs for `today`/`yesterday`/`summary`, empty inputSchemas)
+- Docs: corrected stale line counts, overclaimed "read/write for all data types" (only writable types support writes), parity scope (Go/TS/Python full, C/Zig partial)
+- `.gitignore` covers `.pytest_cache/`; Dependabot now monitors the root Dockerfile
+
 ## [0.2.0] - 2026-08-09
 
 ### Added

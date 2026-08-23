@@ -1,0 +1,14 @@
+.env
+health_token.json
+raw_api_responses.json
+target/
+go/
+ts/
+py/
+c/
+zig/
+astrojs/
+bench/
+.git
+.github
+*.md

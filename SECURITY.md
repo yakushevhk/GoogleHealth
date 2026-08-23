@@ -37,7 +37,7 @@ When running in `--http` mode, the server authenticates clients via a static bea
 
 - Always set `MCP_API_KEY` to a strong, unique value in production.
 - Use HTTPS (via a reverse proxy like nginx) — the server itself does not terminate TLS.
-- The server uses constant-time comparison for API key validation to prevent timing attacks.
+- The server uses constant-time comparison for API key validation to prevent timing attacks (Rust: `constant_time_eq`, Go: `crypto/subtle.ConstantTimeCompare`, Python: `hmac.compare_digest`, TypeScript: `crypto.timingSafeEqual`).
 
 ### Token Refresh
 

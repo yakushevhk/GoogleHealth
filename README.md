@@ -31,10 +31,10 @@ Full access to the **Google Health API v4** via MCP. **35 tools**, 4 resources, 
 
 | Language | Folder | Lines | Binary | Idle RAM | Status |
 |----------|--------|-------|--------|----------|--------|
-| **Rust** | `src/` | ~4200 | 14 MB | 7.8 MB | production (reference) |
-| **Go** | `go/` | ~4640 | 7 MB | 10.5 MB | production |
-| **TypeScript (Bun)** | `ts/` | ~1200 | — | ~35 MB | production |
-| **Python** | `py/` | ~1500 | — | ~45 MB | production |
+| **Rust** | `src/` | ~4187 | 14 MB | 7.8 MB | production (reference) |
+| **Go** | `go/` | ~4929 | 7 MB | 10.5 MB | production |
+| **TypeScript (Bun)** | `ts/` | ~1485 | — | ~35 MB | production |
+| **Python** | `py/` | ~2291 | — | ~45 MB | production |
 | **C** | `c/` | ~630 | 76 KB | <5 MB | 15 tools |
 | **Zig** | `zig/` | 227 | 101 KB | <2 MB | PoC (10 tools) |
 
@@ -46,7 +46,7 @@ Rust, Go, TypeScript, and Python implementations have full parity: 35 tools, 39 
 
 ### 1. Prerequisites
 
-- Rust 1.75+ (install via [rustup.rs](https://rustup.rs))
+- Rust 1.80+ (install via [rustup.rs](https://rustup.rs))
 - Google Cloud project with Google Health API enabled
 - OAuth2 client credentials (Desktop app type)
 - A refresh token (obtained via `oauth_health.py`)
@@ -86,10 +86,10 @@ MCP_API_KEY="your-secret-key" ./target/release/google-health-mcp --http
 | `GOOGLE_CLIENT_ID` | Yes | OAuth Client ID from Google Cloud Console |
 | `GOOGLE_CLIENT_SECRET` | Yes | OAuth Client Secret |
 | `GOOGLE_REFRESH_TOKEN` | Yes | Refresh token (obtained via `oauth_health.py`) |
-| `MCP_API_KEY` | — | API key for HTTP mode authentication |
+| `MCP_API_KEY` | — | API key for HTTP mode authentication (required for `--http`) |
 | `HOST` | — | Bind address (default: `127.0.0.1`) |
 | `PORT` | — | Bind port (default: `3000`) |
-| `PUBLIC_HOST` | — | Additional allowed Host header for reverse proxy setups |
+| `PUBLIC_HOST` | — | Additional allowed Host header for reverse proxy setups (Rust only) |
 
 ## MCP Client Configuration
 
@@ -347,7 +347,7 @@ Google refresh tokens expire if unused for 6 months. Use `refresh_token.sh` to k
 - rust-mcp-axum (Streamable HTTP + SSE)
 
 ### Go
-- Go 1.23, net/http, sync.Mutex (single-flight gate)
+- Go 1.25, net/http, sync.Mutex (single-flight gate)
 - mcp-go (MCP SDK, stdio + StreamableHTTP)
 - godotenv
 
@@ -357,7 +357,7 @@ Google refresh tokens expire if unused for 6 months. Use `refresh_token.sh` to k
 
 ### Python
 - Python 3.11+, asyncio, httpx (async HTTP)
-- mcp 1.9+ (MCPServer, stdio + StreamableHTTP)
+- mcp 2.x (MCPServer, stdio + StreamableHTTP)
 
 ### Zig (PoC)
 - Zig 0.16, std.json, std.posix (raw fd I/O)
@@ -392,7 +392,7 @@ docker compose up -d
 curl http://127.0.0.1:3000/health
 ```
 
-The `docker-compose.yml` starts the Rust server in HTTP mode on port 3000. Configure credentials in `.env` (see `.env.example`).
+The `docker-compose.yml` starts two services: the Rust server in HTTP mode on port 3000 and the Astro dashboard on port 4321. Configure credentials in `.env` (see `.env.example`).
 
 ## Documentation
 

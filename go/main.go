@@ -68,7 +68,11 @@ func main() {
 	if httpMode {
 		host := envOr("HOST", "127.0.0.1")
 		port := envOr("PORT", "3000")
-		apiKey := envOr("MCP_API_KEY", "change-me")
+		apiKey := os.Getenv("MCP_API_KEY")
+		if apiKey == "" {
+			fmt.Fprintf(os.Stderr, "MCP_API_KEY env var required for HTTP mode\n")
+			os.Exit(1)
+		}
 
 		fmt.Fprintf(os.Stderr, "Starting HTTP/SSE server on %s:%s\n", host, port)
 
