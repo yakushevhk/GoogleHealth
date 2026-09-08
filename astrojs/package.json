@@ -27,6 +27,6 @@
     "@astrojs/check": "^0.9.10",
     "@types/node": "^26.2.0",
     "typescript": "^5.9.0",
-    "vitest": "^4.1.10"
+    "vitest": "^5.0.0"
   }
 }
