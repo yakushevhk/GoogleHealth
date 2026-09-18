@@ -1,14 +1,31 @@
 import http.server
-import urllib.parse
-import webbrowser
 import json
+import os
+import sys
+import urllib.parse
 import urllib.request
-import ssl
+import webbrowser
 
-CLIENT_ID = "YOUR_CLIENT_ID"
-CLIENT_SECRET = "YOUR_CLIENT_SECRET"
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # Fallback: parse .env manually (KEY=VALUE lines).
+    if os.path.exists(".env"):
+        with open(".env") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
+CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "YOUR_CLIENT_ID")
+CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "YOUR_CLIENT_SECRET")
+if CLIENT_ID == "YOUR_CLIENT_ID" or CLIENT_SECRET == "YOUR_CLIENT_SECRET":
+    print("ERROR: set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env (see .env.example)")
+    sys.exit(1)
 REDIRECT_URI = "http://localhost:8086/callback"
-SCOPE = " ".join([
+SCOPE = " ".join([  # noqa: FLY002 - 16 items stay readable as a list
     "https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly",
     "https://www.googleapis.com/auth/googlehealth.activity_and_fitness.writeonly",
     "https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly",
@@ -56,7 +73,7 @@ server.handle_request()
 
 if not code:
     print("ERROR: No code received")
-    exit(1)
+    sys.exit(1)
 
 data = urllib.parse.urlencode({
     "code": code,
@@ -71,8 +88,10 @@ resp = json.loads(urllib.request.urlopen(req).read())
 
 if "refresh_token" in resp:
     print(f"\nGOOGLE_REFRESH_TOKEN={resp['refresh_token']}")
-    with open("health_token.json", "w") as f:
+    # Token file contains a refresh token — owner-read/write only.
+    fd = os.open("health_token.json", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
         json.dump(resp, f, indent=2)
-    print("Saved to health_token.json")
+    print("Saved to health_token.json (mode 0600)")
 else:
     print("ERROR:", resp)

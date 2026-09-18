@@ -25,15 +25,17 @@ Multi-language MCP server for Google Health Connect API v4. One protocol, six la
 | `c/` | C implementation (partial) |
 | `zig/` | Zig implementation (PoC) |
 | `astrojs/` | Web dashboard (Astro 7 + ECharts) |
+| `spec/` | Canonical tools/resources/prompts/data-types snapshots generated from Rust |
+| `scripts/check-parity.py` | Conformance check: diffs every implementation against `spec/` |
 | `.github/workflows/` | CI/CD (ci.yml, release.yml) |
 | `.skills/` | Detailed context for AI agents |
 
 ## Key Files per Implementation
 
 - **Rust**: `src/main.rs`, `src/tools.rs`, `src/types.rs`, `src/auth.rs`
-- **Go**: `go/main.go`, `go/tools.go`, `go/types.go`, `go/auth.go`
+- **Go**: `go/main.go`, `go/tools_*.go`, `go/types.go`, `go/auth.go`, `go/helpers.go`
 - **TypeScript**: `ts/src/index.ts`
-- **Python**: `py/src/server.py`, `py/src/tools.py`, `py/src/types.py`, `py/src/auth.py`
+- **Python**: `py/google_health_mcp/server.py`, `py/google_health_mcp/tools.py`, `py/google_health_mcp/types.py`, `py/google_health_mcp/auth.py`
 - **Dashboard**: `astrojs/src/lib/`, `astrojs/src/pages/`, `astrojs/src/components/`
 
 ## Build & Test Quick Reference
@@ -44,6 +46,8 @@ cd go && go test ./... -v               # Go tests
 cd astrojs && npm test                  # Dashboard tests
 cd ts && bun install                    # TS dependencies
 cd py && pip install -e .               # Python dependencies
+python3 scripts/check-parity.py         # Cross-impl conformance vs spec/
+python3 scripts/check-parity.py --update-spec  # Regenerate spec after intentional Rust changes
 ```
 
 ## Documentation
@@ -62,6 +66,7 @@ cd py && pip install -e .               # Python dependencies
 
 1. Run tests for the language you changed
 2. If adding/modifying a tool: update ALL implementations
-3. Update README.md if tool list changed
-4. Update CHANGELOG.md for user-facing changes
-5. Ensure no secrets in diff (`git diff`)
+3. If a tool/resource/prompt/type changed in Rust: run `python3 scripts/check-parity.py --update-spec` to regenerate `spec/`, then `python3 scripts/check-parity.py` must pass
+4. Update README.md if tool list changed
+5. Update CHANGELOG.md for user-facing changes
+6. Ensure no secrets in diff (`git diff`)

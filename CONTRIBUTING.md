@@ -57,7 +57,7 @@ When adding a new tool or data type:
 1. Implement it in Rust first (`src/tools.rs`, `src/types.rs`)
 2. Port to Go (`go/tools_*.go`, `go/types.go`)
 3. Port to TypeScript (`ts/src/tools.ts`, `ts/src/types.ts`)
-4. Port to Python (`py/src/tools.py`, `py/src/types.py`)
+4. Port to Python (`py/google_health_mcp/tools.py`, `py/google_health_mcp/types.py`)
 5. Update README.md with the new tool/type documentation
 
 ## Code Style

@@ -26,6 +26,10 @@ func listDataPointsHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.C
 	}
 	pageToken, _ := args["page_token"].(string)
 
+	if r := checkSegment(dataType, "data_type"); r != nil {
+		return r, nil
+	}
+
 	apiURL := fmt.Sprintf("%s/dataTypes/%s/dataPoints", base, dataType)
 	var params []string
 
@@ -74,6 +78,13 @@ func getDataPointHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 	dataPointID, _ := args["data_point_id"].(string)
 	raw, _ := args["raw"].(bool)
 
+	if r := checkSegment(dataType, "data_type"); r != nil {
+		return r, nil
+	}
+	if r := checkPointID(dataPointID); r != nil {
+		return r, nil
+	}
+
 	var apiURL string
 	if strings.HasPrefix(dataPointID, "users/") {
 		apiURL = fmt.Sprintf("https://health.googleapis.com/v4/%s", dataPointID)
@@ -109,6 +120,10 @@ func reconcileDataPointsHandler(ctx context.Context, req mcp.CallToolRequest) (*
 		pageSize = int(ps)
 	}
 	pageToken, _ := args["page_token"].(string)
+
+	if r := checkSegment(dataType, "data_type"); r != nil {
+		return r, nil
+	}
 
 	apiURL := fmt.Sprintf("%s/dataTypes/%s/dataPoints:reconcile", base, dataType)
 	var params []string
@@ -162,6 +177,10 @@ func syncDataPointsHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.C
 	}
 	pageToken, _ := args["page_token"].(string)
 
+	if r := checkSegment(dataType, "data_type"); r != nil {
+		return r, nil
+	}
+
 	filter := buildFilter(dataType, sinceTime, untilTime)
 
 	// Delegate to reconcile.
@@ -210,6 +229,10 @@ func rollUpDataPointsHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp
 		pageSize = int(ps)
 	}
 	pageToken, _ := args["page_token"].(string)
+
+	if r := checkSegment(dataType, "data_type"); r != nil {
+		return r, nil
+	}
 
 	apiURL := fmt.Sprintf("%s/dataTypes/%s/dataPoints:rollUp", base, dataType)
 	body := map[string]interface{}{
@@ -271,6 +294,10 @@ func dailyRollUpDataPointsHandler(ctx context.Context, req mcp.CallToolRequest) 
 	end, err := parseCivilDate(endDate)
 	if err != nil {
 		return errResult(err.Error())
+	}
+
+	if r := checkSegment(dataType, "data_type"); r != nil {
+		return r, nil
 	}
 
 	apiURL := fmt.Sprintf("%s/dataTypes/%s/dataPoints:dailyRollUp", base, dataType)

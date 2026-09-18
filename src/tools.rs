@@ -13,7 +13,9 @@ pub(crate) const BASE: &str = "https://health.googleapis.com/v4/users/me";
 
 fn ok(v: &Value) -> Result<CallToolResult, CallToolError> {
     Ok(CallToolResult {
-        content: vec![TextContent::from(serde_json::to_string_pretty(v).unwrap_or_default()).into()],
+        content: vec![
+            TextContent::from(serde_json::to_string_pretty(v).unwrap_or_default()).into(),
+        ],
         is_error: None,
         meta: None,
         // structuredContent must be an object; arrays/scalars are text-only.
@@ -37,7 +39,9 @@ fn err_with_steps(msg: &str, steps: Vec<&str>) -> Result<CallToolResult, CallToo
         "next_steps": steps,
     });
     Ok(CallToolResult {
-        content: vec![TextContent::from(serde_json::to_string_pretty(&body).unwrap_or_default()).into()],
+        content: vec![
+            TextContent::from(serde_json::to_string_pretty(&body).unwrap_or_default()).into(),
+        ],
         is_error: Some(true),
         meta: None,
         structured_content: body.as_object().cloned(),
@@ -106,7 +110,7 @@ fn add_pagination_hint(v: &mut Value) {
     name = "list_data_types",
     title = "List Data Types",
     description = "List all 39 supported Google Health API v4 data types with their categories, supported operations, and key fields. Use this to discover what data is available before calling other tools.",
-    read_only_hint = true,
+    read_only_hint = true
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct ListDataTypes {
@@ -150,7 +154,7 @@ impl ListDataTypes {
     name = "describe_data_type",
     title = "Describe Data Type",
     description = "Get detailed information about a specific data type: supported operations, filter syntax, page limits, rollup range, key response fields, and gotchas.",
-    read_only_hint = true,
+    read_only_hint = true
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct DescribeDataType {
@@ -176,9 +180,8 @@ impl DescribeDataType {
         let (filter_field, filter_example) = match info.time_field.filter_path(info.filter_name) {
             Some(path) => {
                 let sample = match info.time_field {
-                    crate::types::TimeField::Daily | crate::types::TimeField::IntervalCivilStart => {
-                        "2026-07-01"
-                    }
+                    crate::types::TimeField::Daily
+                    | crate::types::TimeField::IntervalCivilStart => "2026-07-01",
                     _ => "2026-07-01T00:00:00Z",
                 };
                 let example = format!("{path} >= \"{sample}\"");
@@ -202,7 +205,7 @@ fn simplify_point(obj: &mut Map<String, Value>) {
     obj.remove("createTime");
     obj.remove("updateTime");
     // Drop nested objects that are empty ({}).
-    obj.retain(|_, val| !(val.is_object() && val.as_object().map_or(false, |o| o.is_empty())));
+    obj.retain(|_, val| !(val.is_object() && val.as_object().is_some_and(|o| o.is_empty())));
 }
 
 /// Simplify a list/rollup response (or a single data point) by removing
@@ -230,7 +233,61 @@ fn simplify_response(v: &mut Value) {
 
 /// Extract f64 from a JSON value that may be a number or a numeric string.
 fn as_num(v: &Value) -> Option<f64> {
-    v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+    v.as_f64()
+        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+}
+
+// ─── path safety ─────────────────────────────────────────────────────────────
+// dataType/dataPointId/deviceId are interpolated into the Google API URL path.
+// Without validation, `%2F` decodes to `/` and dot-segments get normalized,
+// escaping into adjacent paths (`dataPoints/../profile`).
+
+/// Valid path segment: letters, digits, `-`, `_`.
+fn is_segment(s: &str) -> bool {
+    !s.is_empty()
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+/// Full resource name: `users/{user}/dataTypes/{type}/dataPoints/{id}`.
+/// The API returns numeric user IDs as well as the `me` alias.
+fn is_resource_name(s: &str) -> bool {
+    let parts: Vec<&str> = s.split('/').collect();
+    parts.len() == 6
+        && parts[0] == "users"
+        && (parts[1] == "me"
+            || (!parts[1].is_empty() && parts[1].bytes().all(|b| b.is_ascii_digit())))
+        && parts[2] == "dataTypes"
+        && is_segment(parts[3])
+        && parts[4] == "dataPoints"
+        && is_segment(parts[5])
+}
+
+/// Err result if `s` isn't a safe URL path segment.
+fn check_segment(s: &str, what: &str) -> Option<Result<CallToolResult, CallToolError>> {
+    if is_segment(s) {
+        None
+    } else {
+        Some(err(&format!(
+            "{what} must consist of letters, digits, '-', or '_': {s:?}"
+        )))
+    }
+}
+
+/// A data_point_id is either a bare segment or a full resource name.
+fn check_point_id(id: &str) -> Option<Result<CallToolResult, CallToolError>> {
+    let ok = if id.starts_with("users/") {
+        is_resource_name(id)
+    } else {
+        is_segment(id)
+    };
+    if ok {
+        None
+    } else {
+        Some(err(&format!(
+            "data_point_id must be a path segment or users/{{user}}/dataTypes/{{type}}/dataPoints/{{id}}: {id:?}"
+        )))
+    }
 }
 
 // ─── list ────────────────────────────────────────────────────────────────────
@@ -239,7 +296,7 @@ fn as_num(v: &Value) -> Option<f64> {
     name = "list_data_points",
     title = "List Data Points",
     description = "List data points for any Google Health data type. Filter syntax depends on record type: Interval types use '{type}.interval.start_time >= \"RFC3339\" AND {type}.interval.start_time < \"RFC3339\"'; Sample types use '{type}.sample_time.physical_time >= \"RFC3339\"'; Daily types use '{type}.date >= \"YYYY-MM-DD\"'; Sleep uses 'sleep.interval.end_time'; Exercise/hydration-log/nutrition-log/irregular-rhythm-notification use '{type}.interval.civil_start_time >= \"YYYY-MM-DD\"'; ECG uses 'electrocardiogram.interval.start_time >= \"RFC3339\"' (only >=). In filters use snake_case (heart_rate), in data_type use kebab-case (heart-rate). Types without list support: floors, calories-in-heart-rate-zone, total-calories (use rollup instead). food and food-measurement-unit do not support filters. TIP: Use list_data_types to discover available types. Use dailyRollUp for steps/distance/floors totals (list returns intervals without values).",
-    read_only_hint = true,
+    read_only_hint = true
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct ListDataPoints {
@@ -267,6 +324,9 @@ pub struct ListDataPoints {
 
 impl ListDataPoints {
     pub async fn call_tool(&self, auth: &Arc<AuthState>) -> Result<CallToolResult, CallToolError> {
+        if let Some(e) = check_segment(&self.data_type, "data_type") {
+            return e;
+        }
         let mut url = format!("{BASE}/dataTypes/{}/dataPoints", self.data_type);
         let mut params = vec![];
         // If an explicit filter is provided, use it directly. Otherwise, if
@@ -275,9 +335,11 @@ impl ListDataPoints {
         let effective_filter = match &self.filter {
             Some(f) => Some(f.clone()),
             None => match (&self.start_time, &self.end_time) {
-                (Some(start), Some(end)) => {
-                    Some(SyncDataPoints::build_filter(&self.data_type, start, Some(end.as_str())))
-                }
+                (Some(start), Some(end)) => Some(SyncDataPoints::build_filter(
+                    &self.data_type,
+                    start,
+                    Some(end.as_str()),
+                )),
                 (Some(start), None) => {
                     Some(SyncDataPoints::build_filter(&self.data_type, start, None))
                 }
@@ -315,7 +377,7 @@ impl ListDataPoints {
     name = "get_data_point",
     title = "Get Data Point",
     description = "Get a single data point by its ID.",
-    read_only_hint = true,
+    read_only_hint = true
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct GetDataPoint {
@@ -330,6 +392,12 @@ pub struct GetDataPoint {
 
 impl GetDataPoint {
     pub async fn call_tool(&self, auth: &Arc<AuthState>) -> Result<CallToolResult, CallToolError> {
+        if let Some(e) = check_segment(&self.data_type, "data_type") {
+            return e;
+        }
+        if let Some(e) = check_point_id(&self.data_point_id) {
+            return e;
+        }
         let url = if self.data_point_id.starts_with("users/") {
             format!("https://health.googleapis.com/v4/{}", self.data_point_id)
         } else {
@@ -356,7 +424,7 @@ impl GetDataPoint {
     name = "reconcile_data_points",
     title = "Reconcile Data Points",
     description = "Reconcile (deduplicate/merge) data points for a data type. Same filter syntax as list. Supports dataSourceFamily filter. This is a read-only operation (GET request).",
-    read_only_hint = true,
+    read_only_hint = true
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct ReconcileDataPoints {
@@ -381,10 +449,10 @@ pub struct ReconcileDataPoints {
 
 impl ReconcileDataPoints {
     pub async fn call_tool(&self, auth: &Arc<AuthState>) -> Result<CallToolResult, CallToolError> {
-        let mut url = format!(
-            "{BASE}/dataTypes/{}/dataPoints:reconcile",
-            self.data_type
-        );
+        if let Some(e) = check_segment(&self.data_type, "data_type") {
+            return e;
+        }
+        let mut url = format!("{BASE}/dataTypes/{}/dataPoints:reconcile", self.data_type);
         let mut params = vec![];
         if let Some(f) = &self.filter {
             params.push(format!("filter={}", urlenc(f)));
@@ -420,7 +488,7 @@ impl ReconcileDataPoints {
     name = "sync_data_points",
     title = "Sync Data Points (Incremental Sync)",
     description = "Perform incremental synchronization (Delta Sync) for a data type using the reconcile endpoint. Automatically builds time filter for data created or updated after `since_time`. This is a read-only operation.",
-    read_only_hint = true,
+    read_only_hint = true
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct SyncDataPoints {
@@ -454,15 +522,27 @@ impl SyncDataPoints {
                 let civil_date = since_time.get(..10).unwrap_or(since_time);
                 format!("{snake_type}.interval.civil_start_time >= \"{civil_date}\"")
             }
-            "daily-resting-heart-rate" | "daily-heart-rate-variability" | "daily-heart-rate-zones"
-            | "daily-oxygen-saturation" | "daily-respiratory-rate" | "daily-sleep-temperature-derivations"
+            "daily-resting-heart-rate"
+            | "daily-heart-rate-variability"
+            | "daily-heart-rate-zones"
+            | "daily-oxygen-saturation"
+            | "daily-respiratory-rate"
+            | "daily-sleep-temperature-derivations"
             | "daily-vo2-max" => {
                 let civil_date = since_time.get(..10).unwrap_or(since_time);
                 format!("{snake_type}.date >= \"{civil_date}\"")
             }
-            "heart-rate" | "weight" | "height" | "body-fat" | "blood-glucose" | "core-body-temperature"
-            | "heart-rate-variability" | "oxygen-saturation" | "respiratory-rate-sleep-summary"
-            | "vo2-max" | "run-vo2-max" => {
+            "heart-rate"
+            | "weight"
+            | "height"
+            | "body-fat"
+            | "blood-glucose"
+            | "core-body-temperature"
+            | "heart-rate-variability"
+            | "oxygen-saturation"
+            | "respiratory-rate-sleep-summary"
+            | "vo2-max"
+            | "run-vo2-max" => {
                 format!("{snake_type}.sample_time.physical_time >= \"{since_time}\"")
             }
             "electrocardiogram" => {
@@ -474,19 +554,34 @@ impl SyncDataPoints {
         if let Some(until) = until_time {
             let add_until = match data_type {
                 "sleep" => format!(" AND sleep.interval.end_time < \"{until}\""),
-                "exercise" | "hydration-log" | "nutrition-log" | "irregular-rhythm-notification" => {
+                "exercise"
+                | "hydration-log"
+                | "nutrition-log"
+                | "irregular-rhythm-notification" => {
                     let civil_date = until.get(..10).unwrap_or(until);
                     format!(" AND {snake_type}.interval.civil_start_time < \"{civil_date}\"")
                 }
-                "daily-resting-heart-rate" | "daily-heart-rate-variability" | "daily-heart-rate-zones"
-                | "daily-oxygen-saturation" | "daily-respiratory-rate" | "daily-sleep-temperature-derivations"
+                "daily-resting-heart-rate"
+                | "daily-heart-rate-variability"
+                | "daily-heart-rate-zones"
+                | "daily-oxygen-saturation"
+                | "daily-respiratory-rate"
+                | "daily-sleep-temperature-derivations"
                 | "daily-vo2-max" => {
                     let civil_date = until.get(..10).unwrap_or(until);
                     format!(" AND {snake_type}.date < \"{civil_date}\"")
                 }
-                "heart-rate" | "weight" | "height" | "body-fat" | "blood-glucose" | "core-body-temperature"
-                | "heart-rate-variability" | "oxygen-saturation" | "respiratory-rate-sleep-summary"
-                | "vo2-max" | "run-vo2-max" => {
+                "heart-rate"
+                | "weight"
+                | "height"
+                | "body-fat"
+                | "blood-glucose"
+                | "core-body-temperature"
+                | "heart-rate-variability"
+                | "oxygen-saturation"
+                | "respiratory-rate-sleep-summary"
+                | "vo2-max"
+                | "run-vo2-max" => {
                     format!(" AND {snake_type}.sample_time.physical_time < \"{until}\"")
                 }
                 // ECG only supports >= filters; no upper bound.
@@ -499,7 +594,11 @@ impl SyncDataPoints {
     }
 
     pub async fn call_tool(&self, auth: &Arc<AuthState>) -> Result<CallToolResult, CallToolError> {
-        let filter = Self::build_filter(&self.data_type, &self.since_time, self.until_time.as_deref());
+        let filter = Self::build_filter(
+            &self.data_type,
+            &self.since_time,
+            self.until_time.as_deref(),
+        );
         let reconcile_tool = ReconcileDataPoints {
             data_type: self.data_type.clone(),
             filter: Some(filter),
@@ -518,7 +617,7 @@ impl SyncDataPoints {
     name = "rollup_data_points",
     title = "RollUp Data Points",
     description = "Aggregate data points into time buckets. Body: range (Interval with startTime/endTime RFC3339), windowSize (duration e.g. '3600s', '86400s'). Max range: 14 days for heart-rate/active-minutes/total-calories/calories-in-heart-rate-zone, 90 days for others. Response field: rollupDataPoints. Note: heart-rate, active-minutes, total-calories, calories-in-heart-rate-zone have a 14-day range limit.",
-    read_only_hint = true,
+    read_only_hint = true
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct RollUpDataPoints {
@@ -546,6 +645,9 @@ pub struct RollUpDataPoints {
 
 impl RollUpDataPoints {
     pub async fn call_tool(&self, auth: &Arc<AuthState>) -> Result<CallToolResult, CallToolError> {
+        if let Some(e) = check_segment(&self.data_type, "data_type") {
+            return e;
+        }
         let url = format!("{BASE}/dataTypes/{}/dataPoints:rollUp", self.data_type);
         let mut body = json!({
             "range": {
@@ -582,7 +684,7 @@ impl RollUpDataPoints {
     name = "daily_rollup_data_points",
     title = "Daily RollUp Data Points",
     description = "Aggregate data points into daily buckets using civil (local) time. Range uses date objects: start/end with year/month/day. Response field: rollupDataPoints with civilStartTime/civilEndTime. Note: heart-rate, active-minutes, total-calories, calories-in-heart-rate-zone have a 14-day range limit.",
-    read_only_hint = true,
+    read_only_hint = true
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct DailyRollUpDataPoints {
@@ -611,10 +713,10 @@ pub struct DailyRollUpDataPoints {
 
 impl DailyRollUpDataPoints {
     pub async fn call_tool(&self, auth: &Arc<AuthState>) -> Result<CallToolResult, CallToolError> {
-        let url = format!(
-            "{BASE}/dataTypes/{}/dataPoints:dailyRollUp",
-            self.data_type
-        );
+        if let Some(e) = check_segment(&self.data_type, "data_type") {
+            return e;
+        }
+        let url = format!("{BASE}/dataTypes/{}/dataPoints:dailyRollUp", self.data_type);
         let start = match parse_civil_date(&self.start_date) {
             Ok(d) => d,
             Err(e) => return err(&e),
@@ -661,7 +763,7 @@ impl DailyRollUpDataPoints {
     title = "Create Data Point",
     description = "Create a new data point. Supported types: sleep, exercise, weight, height, body-fat, hydration-log, nutrition-log. Provide the DataPoint body as a JSON object. Example for weight: {\"weight\":{\"sampleTime\":{\"physicalTime\":\"2026-07-22T08:00:00Z\",\"utcOffset\":\"0s\"},\"weightGrams\":70000}}",
     read_only_hint = false,
-    destructive_hint = false,
+    destructive_hint = false
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct CreateDataPoint {
@@ -676,6 +778,9 @@ pub struct CreateDataPoint {
 
 impl CreateDataPoint {
     pub async fn call_tool(&self, auth: &Arc<AuthState>) -> Result<CallToolResult, CallToolError> {
+        if let Some(e) = check_segment(&self.data_type, "data_type") {
+            return e;
+        }
         let url = format!("{BASE}/dataTypes/{}/dataPoints", self.data_type);
         if self.dry_run.unwrap_or(false) {
             return ok(&json!({
@@ -701,7 +806,7 @@ impl CreateDataPoint {
     name = "add_weight_sample",
     title = "Add Weight Sample",
     description = "Add a weight measurement in kg.",
-    read_only_hint = false,
+    read_only_hint = false
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct AddWeightSample {
@@ -723,7 +828,10 @@ impl AddWeightSample {
         if self.weight_kg <= 0.0 || self.weight_kg > 500.0 {
             return err("weight_kg must be between 0 and 500 kg");
         }
-        let ts = self.timestamp.clone().unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+        let ts = self
+            .timestamp
+            .clone()
+            .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
         let offset = self.utc_offset.clone().unwrap_or_else(|| "0s".into());
         let grams = (self.weight_kg * 1000.0).round() as i64;
         let body = json!({
@@ -748,7 +856,7 @@ impl AddWeightSample {
     name = "add_hydration_log",
     title = "Add Hydration Log",
     description = "Log a hydration event (time of drinking). Note: Google Health API v4 does not support recording volume.",
-    read_only_hint = false,
+    read_only_hint = false
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct AddHydrationLog {
@@ -768,7 +876,10 @@ pub struct AddHydrationLog {
 
 impl AddHydrationLog {
     pub async fn call_tool(&self, auth: &Arc<AuthState>) -> Result<CallToolResult, CallToolError> {
-        let start = self.start_time.clone().unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+        let start = self
+            .start_time
+            .clone()
+            .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
         let mut end = self.end_time.clone().unwrap_or_else(|| start.clone());
         if start == end {
             if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&start) {
@@ -799,7 +910,7 @@ impl AddHydrationLog {
     name = "add_sleep_session",
     title = "Add Sleep Session",
     description = "Log a sleep session specifying start and end times. The API does not support titles/notes on sleep sessions.",
-    read_only_hint = false,
+    read_only_hint = false
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct AddSleepSession {
@@ -853,7 +964,7 @@ impl AddSleepSession {
     name = "add_exercise_session",
     title = "Add Exercise Session",
     description = "Log an exercise session (workout). Exercise types: RUNNING, WALKING, CYCLING, STRENGTH_TRAINING, SWIMMING, YOGA, TREADMILL, HIIT, etc. The API does not support titles/notes on exercise sessions.",
-    read_only_hint = false,
+    read_only_hint = false
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct AddExerciseSession {
@@ -910,7 +1021,7 @@ impl AddExerciseSession {
     name = "add_nutrition_log",
     title = "Add Nutrition Log",
     description = "Log a meal by type and time. The API only supports mealType and interval; nutrient details and food names are not supported.",
-    read_only_hint = false,
+    read_only_hint = false
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct AddNutritionLog {
@@ -936,7 +1047,10 @@ impl AddNutritionLog {
         if !valid_meals.contains(&self.meal_type.to_uppercase().as_str()) {
             return err("meal_type must be one of: BREAKFAST, LUNCH, DINNER, SNACK");
         }
-        let start = self.start_time.clone().unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+        let start = self
+            .start_time
+            .clone()
+            .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
         let mut end = self.end_time.clone().unwrap_or_else(|| start.clone());
         if start == end {
             if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&start) {
@@ -971,7 +1085,7 @@ impl AddNutritionLog {
     name = "compare_health_periods",
     title = "Compare Health Periods",
     description = "Compare health metrics (steps, active calories, etc.) between two date ranges (Period A vs Period B).",
-    read_only_hint = true,
+    read_only_hint = true
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct CompareHealthPeriods {
@@ -1057,7 +1171,10 @@ async fn build_period_summary(auth: &Arc<AuthState>, start: NaiveDate, end: Naiv
                 data_source_family: None,
                 raw: Some(true),
             };
-            tool.call_tool(&auth).await.ok().and_then(|r| r.structured_content)
+            tool.call_tool(&auth)
+                .await
+                .ok()
+                .and_then(|r| r.structured_content)
         }));
     }
 
@@ -1116,7 +1233,10 @@ async fn build_period_summary(auth: &Arc<AuthState>, start: NaiveDate, end: Naiv
             page_token: None,
             raw: Some(true),
         };
-        tool.call_tool(&auth_hrv).await.ok().and_then(|r| r.structured_content.map(|m| Value::Object(m)))
+        tool.call_tool(&auth_hrv)
+            .await
+            .ok()
+            .and_then(|r| r.structured_content.map(Value::Object))
     });
 
     // Fetch daily resting HR
@@ -1134,13 +1254,16 @@ async fn build_period_summary(auth: &Arc<AuthState>, start: NaiveDate, end: Naiv
             page_token: None,
             raw: Some(true),
         };
-        tool.call_tool(&auth_rhr).await.ok().and_then(|r| r.structured_content.map(|m| Value::Object(m)))
+        tool.call_tool(&auth_rhr)
+            .await
+            .ok()
+            .and_then(|r| r.structured_content.map(Value::Object))
     });
 
     let results: Vec<Option<Value>> = futures::future::join_all(handles)
         .await
         .into_iter()
-        .map(|r| r.unwrap_or(None).map(|m| Value::Object(m)))
+        .map(|r| r.unwrap_or(None).map(Value::Object))
         .collect();
 
     let sleep_sc = sleep_handle.await.unwrap_or(None);
@@ -1156,10 +1279,7 @@ async fn build_period_summary(auth: &Arc<AuthState>, start: NaiveDate, end: Naiv
             .and_then(|v| v.as_array())
             .map(|pts| {
                 pts.iter()
-                    .filter_map(|p| {
-                        p.pointer(path)
-                            .and_then(as_num)
-                    })
+                    .filter_map(|p| p.pointer(path).and_then(as_num))
                     .sum::<f64>()
             })
             .unwrap_or(0.0)
@@ -1172,12 +1292,13 @@ async fn build_period_summary(auth: &Arc<AuthState>, start: NaiveDate, end: Naiv
             .map(|pts| {
                 let vals: Vec<f64> = pts
                     .iter()
-                    .filter_map(|p| {
-                        p.pointer(path)
-                            .and_then(as_num)
-                    })
+                    .filter_map(|p| p.pointer(path).and_then(as_num))
                     .collect();
-                if vals.is_empty() { 0.0 } else { vals.iter().sum::<f64>() / vals.len() as f64 }
+                if vals.is_empty() {
+                    0.0
+                } else {
+                    vals.iter().sum::<f64>() / vals.len() as f64
+                }
             })
             .unwrap_or(0.0)
     };
@@ -1199,23 +1320,38 @@ async fn build_period_summary(auth: &Arc<AuthState>, start: NaiveDate, end: Naiv
     if let Some(sc) = sleep_sc {
         if let Some(pts) = sc.get("dataPoints").and_then(|v| v.as_array()) {
             for p in pts {
-                if let Some(mins) = p.pointer("/sleep/summary/minutesAsleep")
-                    .and_then(|v| v.as_str().and_then(|s| s.parse::<u64>().ok()).or_else(|| v.as_u64()))
-                {
+                if let Some(mins) = p.pointer("/sleep/summary/minutesAsleep").and_then(|v| {
+                    v.as_str()
+                        .and_then(|s| s.parse::<u64>().ok())
+                        .or_else(|| v.as_u64())
+                }) {
                     total_sleep_minutes += mins;
                     sleep_sessions += 1;
                 }
-                if let Some(mins) = p.pointer("/sleep/summary/minutesInSleepPeriod")
-                    .and_then(|v| v.as_str().and_then(|s| s.parse::<u64>().ok()).or_else(|| v.as_u64()))
+                if let Some(mins) = p
+                    .pointer("/sleep/summary/minutesInSleepPeriod")
+                    .and_then(|v| {
+                        v.as_str()
+                            .and_then(|s| s.parse::<u64>().ok())
+                            .or_else(|| v.as_u64())
+                    })
                 {
                     total_sleep_in_period += mins;
                 }
                 // Deep/REM minutes come from stagesSummary array, nested under summary
-                if let Some(stages) = p.pointer("/sleep/summary/stagesSummary").and_then(|v| v.as_array()) {
+                if let Some(stages) = p
+                    .pointer("/sleep/summary/stagesSummary")
+                    .and_then(|v| v.as_array())
+                {
                     for stage in stages {
                         let stage_type = stage.get("type").and_then(|v| v.as_str()).unwrap_or("");
-                        let mins = stage.get("minutes")
-                            .and_then(|v| v.as_str().and_then(|s| s.parse::<u64>().ok()).or_else(|| v.as_u64()))
+                        let mins = stage
+                            .get("minutes")
+                            .and_then(|v| {
+                                v.as_str()
+                                    .and_then(|s| s.parse::<u64>().ok())
+                                    .or_else(|| v.as_u64())
+                            })
                             .unwrap_or(0);
                         match stage_type {
                             "DEEP" => total_deep_minutes += mins,
@@ -1224,9 +1360,11 @@ async fn build_period_summary(auth: &Arc<AuthState>, start: NaiveDate, end: Naiv
                         }
                     }
                 }
-                if let Some(mins) = p.pointer("/sleep/summary/minutesAwake")
-                    .and_then(|v| v.as_str().and_then(|s| s.parse::<u64>().ok()).or_else(|| v.as_u64()))
-                {
+                if let Some(mins) = p.pointer("/sleep/summary/minutesAwake").and_then(|v| {
+                    v.as_str()
+                        .and_then(|s| s.parse::<u64>().ok())
+                        .or_else(|| v.as_u64())
+                }) {
                     total_awake_minutes += mins;
                 }
             }
@@ -1275,15 +1413,35 @@ async fn build_period_summary(auth: &Arc<AuthState>, start: NaiveDate, end: Naiv
         0.0
     };
 
-    let avg_steps = if days > 0 { total_steps / days as u64 } else { 0 };
-    let avg_calories = if days > 0 { total_calories / days as f64 } else { 0.0 };
-    let avg_total_cal = if days > 0 { total_total_calories / days as f64 } else { 0.0 };
-    let avg_distance = if days > 0 { total_distance_km / days as f64 } else { 0.0 };
-    let avg_floors = if days > 0 { total_floors / days as u64 } else { 0 };
-    let avg_sleep = if sleep_sessions > 0 { total_sleep_minutes / sleep_sessions } else { 0 };
-    let avg_deep = if sleep_sessions > 0 { total_deep_minutes / sleep_sessions } else { 0 };
-    let avg_rem = if sleep_sessions > 0 { total_rem_minutes / sleep_sessions } else { 0 };
-    let avg_awake = if sleep_sessions > 0 { total_awake_minutes / sleep_sessions } else { 0 };
+    let avg_steps = if days > 0 {
+        total_steps / days as u64
+    } else {
+        0
+    };
+    let avg_calories = if days > 0 {
+        total_calories / days as f64
+    } else {
+        0.0
+    };
+    let avg_total_cal = if days > 0 {
+        total_total_calories / days as f64
+    } else {
+        0.0
+    };
+    let avg_distance = if days > 0 {
+        total_distance_km / days as f64
+    } else {
+        0.0
+    };
+    let avg_floors = if days > 0 {
+        total_floors / days as u64
+    } else {
+        0
+    };
+    let avg_sleep = total_sleep_minutes.checked_div(sleep_sessions).unwrap_or(0);
+    let avg_deep = total_deep_minutes.checked_div(sleep_sessions).unwrap_or(0);
+    let avg_rem = total_rem_minutes.checked_div(sleep_sessions).unwrap_or(0);
+    let avg_awake = total_awake_minutes.checked_div(sleep_sessions).unwrap_or(0);
     let avg_efficiency = if total_sleep_in_period > 0 {
         (total_sleep_minutes as f64 / total_sleep_in_period as f64) * 100.0
     } else {
@@ -1317,10 +1475,18 @@ async fn build_period_summary(auth: &Arc<AuthState>, start: NaiveDate, end: Naiv
 
 fn calculate_deltas(a: &Value, b: &Value) -> Value {
     let delta = |key: &str| -> Value {
-        let va = a[key].as_f64().unwrap_or(a[key].as_u64().unwrap_or(0) as f64);
-        let vb = b[key].as_f64().unwrap_or(b[key].as_u64().unwrap_or(0) as f64);
+        let va = a[key]
+            .as_f64()
+            .unwrap_or(a[key].as_u64().unwrap_or(0) as f64);
+        let vb = b[key]
+            .as_f64()
+            .unwrap_or(b[key].as_u64().unwrap_or(0) as f64);
         let diff = vb - va;
-        let pct = if va.abs() > 0.0 { (diff / va) * 100.0 } else { 0.0 };
+        let pct = if va.abs() > 0.0 {
+            (diff / va) * 100.0
+        } else {
+            0.0
+        };
         json!({
             "period_a": va,
             "period_b": vb,
@@ -1350,7 +1516,7 @@ fn calculate_deltas(a: &Value, b: &Value) -> Value {
     name = "get_hrv_recovery_trend",
     title = "Get HRV & Recovery Trend",
     description = "Analyze HRV (Heart Rate Variability) and resting heart rate trends over past N days to evaluate physical recovery status.",
-    read_only_hint = true,
+    read_only_hint = true
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct GetHrvRecoveryTrend {
@@ -1364,7 +1530,7 @@ pub struct GetHrvRecoveryTrend {
 
 impl GetHrvRecoveryTrend {
     pub async fn call_tool(&self, auth: &Arc<AuthState>) -> Result<CallToolResult, CallToolError> {
-        let days_count = self.days.unwrap_or(14).min(90).max(1);
+        let days_count = self.days.unwrap_or(14).clamp(1, 90);
         let end = match &self.end_date {
             Some(s) => match parse_civil_date(s) {
                 Ok(d) => d,
@@ -1403,8 +1569,20 @@ impl GetHrvRecoveryTrend {
         // non-Send CallToolError before it can be held across an await point,
         // keeping the enclosing future Send.
         let (hrv_sc, rhr_sc) = tokio::join!(
-            async { hrv_tool.call_tool(auth).await.ok().and_then(|r| r.structured_content.map(|m| Value::Object(m))) },
-            async { rhr_tool.call_tool(auth).await.ok().and_then(|r| r.structured_content.map(|m| Value::Object(m))) },
+            async {
+                hrv_tool
+                    .call_tool(auth)
+                    .await
+                    .ok()
+                    .and_then(|r| r.structured_content.map(Value::Object))
+            },
+            async {
+                rhr_tool
+                    .call_tool(auth)
+                    .await
+                    .ok()
+                    .and_then(|r| r.structured_content.map(Value::Object))
+            },
         );
 
         let mut hrv_values: Vec<f64> = Vec::new();
@@ -1420,14 +1598,14 @@ impl GetHrvRecoveryTrend {
                     {
                         hrv_values.push(rmssd);
                         // date is a {year, month, day} object; normalize to "YYYY-MM-DD"
-                        let date = hrv_obj
-                            .and_then(|h| h.get("date"))
-                            .map(date_obj_to_str);
+                        let date = hrv_obj.and_then(|h| h.get("date")).map(date_obj_to_str);
                         let entropy = hrv_obj
                             .and_then(|h| h.get("entropy"))
                             .and_then(|v| v.as_f64());
                         let deep_rmssd = hrv_obj
-                            .and_then(|h| h.get("deepSleepRootMeanSquareOfSuccessiveDifferencesMilliseconds"))
+                            .and_then(|h| {
+                                h.get("deepSleepRootMeanSquareOfSuccessiveDifferencesMilliseconds")
+                            })
                             .and_then(|v| v.as_f64());
                         let non_rem_hr = hrv_obj
                             .and_then(|h| h.get("nonRemHeartRateBeatsPerMinute"))
@@ -1456,11 +1634,11 @@ impl GetHrvRecoveryTrend {
                     {
                         rhr_values.push(bpm);
                         // date is a {year, month, day} object; normalize to "YYYY-MM-DD"
-                        let date = rhr_obj
-                            .and_then(|h| h.get("date"))
-                            .map(date_obj_to_str);
+                        let date = rhr_obj.and_then(|h| h.get("date")).map(date_obj_to_str);
                         let method = rhr_obj
-                            .and_then(|h| h.pointer("/dailyRestingHeartRateMetadata/calculationMethod"))
+                            .and_then(|h| {
+                                h.pointer("/dailyRestingHeartRateMetadata/calculationMethod")
+                            })
                             .and_then(|v| v.as_str());
                         rhr_daily.push(json!({
                             "date": date,
@@ -1512,21 +1690,22 @@ impl GetHrvRecoveryTrend {
                 // Baseline: days[0..len-3], Current: days[len-3..len]
                 let bl_end = hrv_sorted.len() - 3;
                 baseline_period_label = format!("first {bl_end} days");
-                let bl_hrv: f64 = hrv_sorted[..bl_end].iter().map(|(_, v)| *v).sum::<f64>() / bl_end as f64;
+                let bl_hrv: f64 =
+                    hrv_sorted[..bl_end].iter().map(|(_, v)| *v).sum::<f64>() / bl_end as f64;
                 let bl_rhr: f64 = if rhr_sorted.len() >= 4 {
                     let rhr_bl_end = rhr_sorted.len() - 3;
-                    rhr_sorted[..rhr_bl_end].iter().map(|(_, v)| *v).sum::<f64>() / rhr_bl_end as f64
+                    rhr_sorted[..rhr_bl_end]
+                        .iter()
+                        .map(|(_, v)| *v)
+                        .sum::<f64>()
+                        / rhr_bl_end as f64
                 } else if !rhr_sorted.is_empty() {
                     rhr_sorted.iter().map(|(_, v)| *v).sum::<f64>() / rhr_sorted.len() as f64
                 } else {
                     0.0
                 };
                 // Current: last 3 days
-                let cur_hrv: f64 = hrv_sorted[bl_end..]
-                    .iter()
-                    .map(|(_, v)| *v)
-                    .sum::<f64>()
-                    / 3.0;
+                let cur_hrv: f64 = hrv_sorted[bl_end..].iter().map(|(_, v)| *v).sum::<f64>() / 3.0;
                 let cur_rhr_len = rhr_sorted.len().min(3);
                 let cur_rhr: f64 = if cur_rhr_len > 0 {
                     rhr_sorted[rhr_sorted.len() - cur_rhr_len..]
@@ -1537,15 +1716,14 @@ impl GetHrvRecoveryTrend {
                 } else {
                     0.0
                 };
-                let status = if cur_hrv >= bl_hrv * 0.95
-                    && (bl_rhr == 0.0 || cur_rhr <= bl_rhr * 1.05)
-                {
-                    "HIGH"
-                } else if cur_hrv >= bl_hrv * 0.85 {
-                    "MODERATE"
-                } else {
-                    "LOW / RECOVERY NEEDED"
-                };
+                let status =
+                    if cur_hrv >= bl_hrv * 0.95 && (bl_rhr == 0.0 || cur_rhr <= bl_rhr * 1.05) {
+                        "HIGH"
+                    } else if cur_hrv >= bl_hrv * 0.85 {
+                        "MODERATE"
+                    } else {
+                        "LOW / RECOVERY NEEDED"
+                    };
                 (status, bl_hrv, bl_rhr, cur_hrv, cur_rhr)
             } else {
                 // Not enough data for personalized baseline; fall back to overall average
@@ -1602,7 +1780,7 @@ impl GetHrvRecoveryTrend {
     name = "get_temperature_summary",
     title = "Get Temperature Summary",
     description = "Get core body temperature and daily sleep temperature derivations for a period.",
-    read_only_hint = true,
+    read_only_hint = true
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct GetTemperatureSummary {
@@ -1649,8 +1827,20 @@ impl GetTemperatureSummary {
         // Concurrent fetch; map away the non-Send CallToolError inside each branch
         // so the enclosing future stays Send.
         let (core_sc, sleep_temp_sc) = tokio::join!(
-            async { core_tool.call_tool(auth).await.ok().and_then(|r| r.structured_content) },
-            async { sleep_temp_tool.call_tool(auth).await.ok().and_then(|r| r.structured_content) },
+            async {
+                core_tool
+                    .call_tool(auth)
+                    .await
+                    .ok()
+                    .and_then(|r| r.structured_content)
+            },
+            async {
+                sleep_temp_tool
+                    .call_tool(auth)
+                    .await
+                    .ok()
+                    .and_then(|r| r.structured_content)
+            },
         );
 
         let result = json!({
@@ -1674,7 +1864,7 @@ impl GetTemperatureSummary {
     title = "Patch Data Point",
     description = "Update an existing data point. Provide data type, data point ID, and the fields to update as a JSON object.",
     read_only_hint = false,
-    destructive_hint = false,
+    destructive_hint = false
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct PatchDataPoint {
@@ -1688,6 +1878,12 @@ pub struct PatchDataPoint {
 
 impl PatchDataPoint {
     pub async fn call_tool(&self, auth: &Arc<AuthState>) -> Result<CallToolResult, CallToolError> {
+        if let Some(e) = check_segment(&self.data_type, "data_type") {
+            return e;
+        }
+        if let Some(e) = check_point_id(&self.data_point_id) {
+            return e;
+        }
         let url = if self.data_point_id.starts_with("users/") {
             format!("https://health.googleapis.com/v4/{}", self.data_point_id)
         } else {
@@ -1713,7 +1909,7 @@ impl PatchDataPoint {
     title = "Delete Data Point",
     description = "Delete a single data point by its data type and data point ID.",
     read_only_hint = false,
-    destructive_hint = true,
+    destructive_hint = true
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct DeleteDataPoint {
@@ -1725,10 +1921,19 @@ pub struct DeleteDataPoint {
 
 impl DeleteDataPoint {
     pub async fn call_tool(&self, auth: &Arc<AuthState>) -> Result<CallToolResult, CallToolError> {
+        if let Some(e) = check_segment(&self.data_type, "data_type") {
+            return e;
+        }
+        if let Some(e) = check_point_id(&self.data_point_id) {
+            return e;
+        }
         let name = if self.data_point_id.starts_with("users/") {
             self.data_point_id.clone()
         } else {
-            format!("users/me/dataTypes/{}/dataPoints/{}", self.data_type, self.data_point_id)
+            format!(
+                "users/me/dataTypes/{}/dataPoints/{}",
+                self.data_type, self.data_point_id
+            )
         };
         let batch_tool = BatchDeleteDataPoints {
             data_type: self.data_type.clone(),
@@ -1745,7 +1950,7 @@ impl DeleteDataPoint {
     title = "Batch Delete Data Points",
     description = "Delete multiple data points by their full resource names. Max 10000 per request. Supported types: sleep, exercise, weight, height, body-fat, hydration-log, nutrition-log.",
     read_only_hint = false,
-    destructive_hint = true,
+    destructive_hint = true
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct BatchDeleteDataPoints {
@@ -1757,10 +1962,17 @@ pub struct BatchDeleteDataPoints {
 
 impl BatchDeleteDataPoints {
     pub async fn call_tool(&self, auth: &Arc<AuthState>) -> Result<CallToolResult, CallToolError> {
-        let url = format!(
-            "{BASE}/dataTypes/{}/dataPoints:batchDelete",
-            self.data_type
-        );
+        if let Some(e) = check_segment(&self.data_type, "data_type") {
+            return e;
+        }
+        for name in &self.names {
+            if !is_resource_name(name) {
+                return err(&format!(
+                    "names must have the form users/{{user}}/dataTypes/{{type}}/dataPoints/{{id}}: {name:?}"
+                ));
+            }
+        }
+        let url = format!("{BASE}/dataTypes/{}/dataPoints:batchDelete", self.data_type);
         let body = json!({ "names": self.names });
         match auth.api_post(&url, &body).await {
             Ok(v) => {
@@ -1778,7 +1990,7 @@ impl BatchDeleteDataPoints {
     name = "export_exercise_tcx",
     title = "Export Exercise TCX",
     description = "Export an exercise data point as TCX (Training Center XML). Requires both activity_and_fitness.readonly and location.readonly scopes. Add ?alt=media for raw TCX download.",
-    read_only_hint = true,
+    read_only_hint = true
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct ExportExerciseTcx {
@@ -1791,6 +2003,9 @@ pub struct ExportExerciseTcx {
 
 impl ExportExerciseTcx {
     pub async fn call_tool(&self, auth: &Arc<AuthState>) -> Result<CallToolResult, CallToolError> {
+        if let Some(e) = check_point_id(&self.data_point_id) {
+            return e;
+        }
         // alt=media asks Google to return the raw TCX XML (surfaced in `rawBody`)
         // instead of a JSON wrapper.
         let mut params = vec!["alt=media".to_string()];
@@ -1817,7 +2032,7 @@ impl ExportExerciseTcx {
     name = "get_profile",
     title = "Get Profile",
     description = "Get the user's Google Health profile (name, birthdate, gender, etc).",
-    read_only_hint = true,
+    read_only_hint = true
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct GetProfile {}
@@ -1835,7 +2050,7 @@ impl GetProfile {
     name = "update_profile",
     title = "Update Profile",
     description = "Update the user's Google Health profile fields. Provide fields as a JSON object.",
-    read_only_hint = false,
+    read_only_hint = false
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct UpdateProfile {
@@ -1858,7 +2073,7 @@ impl UpdateProfile {
     name = "get_settings",
     title = "Get Settings",
     description = "Get the user's Google Health settings (units, preferences).",
-    read_only_hint = true,
+    read_only_hint = true
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct GetSettings {}
@@ -1876,7 +2091,7 @@ impl GetSettings {
     name = "update_settings",
     title = "Update Settings",
     description = "Update the user's Google Health settings. Provide fields as a JSON object.",
-    read_only_hint = false,
+    read_only_hint = false
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct UpdateSettings {
@@ -1886,7 +2101,10 @@ pub struct UpdateSettings {
 
 impl UpdateSettings {
     pub async fn call_tool(&self, auth: &Arc<AuthState>) -> Result<CallToolResult, CallToolError> {
-        match auth.api_patch(&format!("{BASE}/settings"), &self.body).await {
+        match auth
+            .api_patch(&format!("{BASE}/settings"), &self.body)
+            .await
+        {
             Ok(v) => ok(&v),
             Err(e) => api_err(&e),
         }
@@ -1899,7 +2117,7 @@ impl UpdateSettings {
     name = "get_identity",
     title = "Get Identity",
     description = "Get the user's Google Health identity information.",
-    read_only_hint = true,
+    read_only_hint = true
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct GetIdentity {}
@@ -1919,7 +2137,7 @@ impl GetIdentity {
     name = "get_irn_profile",
     title = "Get IRN Profile",
     description = "Get the user's Irregular Rhythm Notification profile.",
-    read_only_hint = true,
+    read_only_hint = true
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct GetIrnProfile {}
@@ -1939,7 +2157,7 @@ impl GetIrnProfile {
     name = "list_paired_devices",
     title = "List Paired Devices",
     description = "List all devices paired with the user's Google Health account.",
-    read_only_hint = true,
+    read_only_hint = true
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct ListPairedDevices {}
@@ -1957,7 +2175,7 @@ impl ListPairedDevices {
     name = "get_paired_device",
     title = "Get Paired Device",
     description = "Get details of a specific paired device.",
-    read_only_hint = true,
+    read_only_hint = true
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct GetPairedDevice {
@@ -1967,6 +2185,9 @@ pub struct GetPairedDevice {
 
 impl GetPairedDevice {
     pub async fn call_tool(&self, auth: &Arc<AuthState>) -> Result<CallToolResult, CallToolError> {
+        if let Some(e) = check_segment(&self.device_id, "device_id") {
+            return e;
+        }
         let url = format!("{BASE}/pairedDevices/{}", self.device_id);
         match auth.api_get(&url).await {
             Ok(v) => ok(&v),
@@ -1979,7 +2200,11 @@ impl GetPairedDevice {
 
 /// RFC 3986 unreserved set: ALPHA / DIGIT / "-" / "." / "_" / "~".
 /// Everything else (spaces, quotes, <>=&, #, %, non-ASCII) is percent-encoded.
-const ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC.remove(b'-').remove(b'.').remove(b'_').remove(b'~');
+const ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'.')
+    .remove(b'_')
+    .remove(b'~');
 
 fn urlenc(s: &str) -> String {
     utf8_percent_encode(s, ENCODE_SET).to_string()
@@ -2018,20 +2243,40 @@ const CONCURRENCY: usize = 10;
 const ROLLUP_SPECS: &[(&str, &str, &str)] = &[
     ("steps", "steps", "steps"),
     ("heart-rate", "heartRate", "heart_rate"),
-    ("active-energy-burned", "activeEnergyBurned", "active_calories"),
+    (
+        "active-energy-burned",
+        "activeEnergyBurned",
+        "active_calories",
+    ),
     ("total-calories", "totalCalories", "total_calories"),
     ("distance", "distance", "distance"),
     ("active-minutes", "activeMinutes", "active_minutes"),
-    ("active-zone-minutes", "activeZoneMinutes", "active_zone_minutes"),
+    (
+        "active-zone-minutes",
+        "activeZoneMinutes",
+        "active_zone_minutes",
+    ),
     ("floors", "floors", "floors"),
-    ("time-in-heart-rate-zone", "timeInHeartRateZone", "time_in_heart_rate_zone"),
-    ("calories-in-heart-rate-zone", "caloriesInHeartRateZone", "calories_in_heart_rate_zone"),
+    (
+        "time-in-heart-rate-zone",
+        "timeInHeartRateZone",
+        "time_in_heart_rate_zone",
+    ),
+    (
+        "calories-in-heart-rate-zone",
+        "caloriesInHeartRateZone",
+        "calories_in_heart_rate_zone",
+    ),
     ("altitude", "altitude", "altitude"),
     ("swim-lengths-data", "swimLengthsData", "swim_lengths"),
     ("weight", "weight", "weight_rollup"),
     ("body-fat", "bodyFat", "body_fat"),
     ("blood-glucose", "bloodGlucose", "blood_glucose"),
-    ("core-body-temperature", "coreBodyTemperature", "core_body_temperature"),
+    (
+        "core-body-temperature",
+        "coreBodyTemperature",
+        "core_body_temperature",
+    ),
     ("run-vo2-max", "runVo2Max", "run_vo2_max"),
     ("sedentary-period", "sedentaryPeriod", "sedentary_period"),
     ("nutrition-log", "nutritionLog", "nutrition_log"),
@@ -2040,21 +2285,71 @@ const ROLLUP_SPECS: &[(&str, &str, &str)] = &[
 
 /// Daily types (list, pageSize=1, filter `{f}.date`): (data_type, filter field, data field, key)
 const DAILY_SPECS: &[(&str, &str, &str, &str)] = &[
-    ("daily-resting-heart-rate", "daily_resting_heart_rate", "dailyRestingHeartRate", "resting_heart_rate"),
-    ("daily-heart-rate-variability", "daily_heart_rate_variability", "dailyHeartRateVariability", "heart_rate_variability"),
-    ("daily-oxygen-saturation", "daily_oxygen_saturation", "dailyOxygenSaturation", "oxygen_saturation"),
-    ("daily-respiratory-rate", "daily_respiratory_rate", "dailyRespiratoryRate", "respiratory_rate"),
-    ("daily-sleep-temperature-derivations", "daily_sleep_temperature_derivations", "dailySleepTemperatureDerivations", "sleep_temperature"),
-    ("daily-vo2-max", "daily_vo2_max", "dailyVo2Max", "daily_vo2_max"),
-    ("daily-heart-rate-zones", "daily_heart_rate_zones", "dailyHeartRateZones", "daily_heart_rate_zones"),
+    (
+        "daily-resting-heart-rate",
+        "daily_resting_heart_rate",
+        "dailyRestingHeartRate",
+        "resting_heart_rate",
+    ),
+    (
+        "daily-heart-rate-variability",
+        "daily_heart_rate_variability",
+        "dailyHeartRateVariability",
+        "heart_rate_variability",
+    ),
+    (
+        "daily-oxygen-saturation",
+        "daily_oxygen_saturation",
+        "dailyOxygenSaturation",
+        "oxygen_saturation",
+    ),
+    (
+        "daily-respiratory-rate",
+        "daily_respiratory_rate",
+        "dailyRespiratoryRate",
+        "respiratory_rate",
+    ),
+    (
+        "daily-sleep-temperature-derivations",
+        "daily_sleep_temperature_derivations",
+        "dailySleepTemperatureDerivations",
+        "sleep_temperature",
+    ),
+    (
+        "daily-vo2-max",
+        "daily_vo2_max",
+        "dailyVo2Max",
+        "daily_vo2_max",
+    ),
+    (
+        "daily-heart-rate-zones",
+        "daily_heart_rate_zones",
+        "dailyHeartRateZones",
+        "daily_heart_rate_zones",
+    ),
 ];
 
 /// Raw samples (list, pageSize=1, filter `{f}.sample_time.civil_time`)
 const SAMPLE_SPECS: &[(&str, &str, &str, &str)] = &[
     ("vo2-max", "vo2_max", "vo2Max", "vo2_max"),
-    ("heart-rate-variability", "heart_rate_variability", "heartRateVariability", "hrv_sample"),
-    ("oxygen-saturation", "oxygen_saturation", "oxygenSaturation", "spo2_sample"),
-    ("respiratory-rate-sleep-summary", "respiratory_rate_sleep_summary", "respiratoryRateSleepSummary", "respiratory_rate_sleep"),
+    (
+        "heart-rate-variability",
+        "heart_rate_variability",
+        "heartRateVariability",
+        "hrv_sample",
+    ),
+    (
+        "oxygen-saturation",
+        "oxygen_saturation",
+        "oxygenSaturation",
+        "spo2_sample",
+    ),
+    (
+        "respiratory-rate-sleep-summary",
+        "respiratory_rate_sleep_summary",
+        "respiratoryRateSleepSummary",
+        "respiratory_rate_sleep",
+    ),
 ];
 
 /// Extracts a field from the first data point in a list response.
@@ -2078,7 +2373,9 @@ fn first_point_field(v: &Value, field: &str) -> Option<Value> {
 /// Per-metric errors are collected in `_errors`; missing field = no data.
 pub(crate) async fn build_daily_summary(auth: &Arc<AuthState>, date: NaiveDate) -> Value {
     let date_s = date.format("%Y-%m-%d").to_string();
-    let next_s = (date + ChronoDuration::days(1)).format("%Y-%m-%d").to_string();
+    let next_s = (date + ChronoDuration::days(1))
+        .format("%Y-%m-%d")
+        .to_string();
     let mut summary = json!({ "date": date_s });
 
     let rollup_body = json!({
@@ -2100,7 +2397,9 @@ pub(crate) async fn build_daily_summary(auth: &Arc<AuthState>, date: NaiveDate) 
             match auth.api_post(&url, &body).await {
                 Ok(v) => (
                     key,
-                    v.pointer("/rollupDataPoints/0").and_then(|p| p.get(field)).cloned(),
+                    v.pointer("/rollupDataPoints/0")
+                        .and_then(|p| p.get(field))
+                        .cloned(),
                     None,
                 ),
                 Err(e) => (key, None, Some(format!("{dt}: {e}"))),
@@ -2113,7 +2412,10 @@ pub(crate) async fn build_daily_summary(auth: &Arc<AuthState>, date: NaiveDate) 
         let auth = Arc::clone(auth);
         let f = format!("{ffield}.date >= \"{date_s}\" AND {ffield}.date < \"{next_s}\"");
         tasks.push(Box::pin(async move {
-            let url = format!("{BASE}/dataTypes/{dt}/dataPoints?filter={}&pageSize=1", urlenc(&f));
+            let url = format!(
+                "{BASE}/dataTypes/{dt}/dataPoints?filter={}&pageSize=1",
+                urlenc(&f)
+            );
             match auth.api_get(&url).await {
                 Ok(v) => (key, first_point_field(&v, dfield), None),
                 Err(e) => (key, None, Some(format!("{dt}: {e}"))),
@@ -2126,7 +2428,10 @@ pub(crate) async fn build_daily_summary(auth: &Arc<AuthState>, date: NaiveDate) 
         let auth = Arc::clone(auth);
         let f = format!("{ffield}.sample_time.civil_time >= \"{date_s}\" AND {ffield}.sample_time.civil_time < \"{next_s}\"");
         tasks.push(Box::pin(async move {
-            let url = format!("{BASE}/dataTypes/{dt}/dataPoints?filter={}&pageSize=1", urlenc(&f));
+            let url = format!(
+                "{BASE}/dataTypes/{dt}/dataPoints?filter={}&pageSize=1",
+                urlenc(&f)
+            );
             match auth.api_get(&url).await {
                 Ok(v) => (key, first_point_field(&v, dfield), None),
                 Err(e) => (key, None, Some(format!("{dt}: {e}"))),
@@ -2139,7 +2444,10 @@ pub(crate) async fn build_daily_summary(auth: &Arc<AuthState>, date: NaiveDate) 
         let auth = Arc::clone(auth);
         let f = format!("sleep.interval.civil_end_time >= \"{date_s}\" AND sleep.interval.civil_end_time < \"{next_s}\"");
         tasks.push(Box::pin(async move {
-            let url = format!("{BASE}/dataTypes/sleep/dataPoints?filter={}&pageSize=5", urlenc(&f));
+            let url = format!(
+                "{BASE}/dataTypes/sleep/dataPoints?filter={}&pageSize=5",
+                urlenc(&f)
+            );
             match auth.api_get(&url).await {
                 Ok(v) => {
                     let sleeps: Vec<Value> = v
@@ -2179,7 +2487,10 @@ pub(crate) async fn build_daily_summary(auth: &Arc<AuthState>, date: NaiveDate) 
         let auth = Arc::clone(auth);
         let f = format!("exercise.interval.civil_start_time >= \"{date_s}\" AND exercise.interval.civil_start_time < \"{next_s}\"");
         tasks.push(Box::pin(async move {
-            let url = format!("{BASE}/dataTypes/exercise/dataPoints?filter={}&pageSize=25", urlenc(&f));
+            let url = format!(
+                "{BASE}/dataTypes/exercise/dataPoints?filter={}&pageSize=25",
+                urlenc(&f)
+            );
             match auth.api_get(&url).await {
                 Ok(v) => {
                     let exercises: Vec<Value> = v
@@ -2222,13 +2533,20 @@ pub(crate) async fn build_daily_summary(auth: &Arc<AuthState>, date: NaiveDate) 
             "activity_level.interval.start_time >= \"{date_s}T00:00:00Z\" AND activity_level.interval.start_time < \"{next_s}T00:00:00Z\""
         );
         tasks.push(Box::pin(async move {
-            let url = format!("{BASE}/dataTypes/activity-level/dataPoints?filter={}&pageSize=50", urlenc(&f));
+            let url = format!(
+                "{BASE}/dataTypes/activity-level/dataPoints?filter={}&pageSize=50",
+                urlenc(&f)
+            );
             match auth.api_get(&url).await {
                 Ok(v) => {
                     let levels: Vec<Value> = v
                         .get("dataPoints")
                         .and_then(|p| p.as_array())
-                        .map(|pts| pts.iter().filter_map(|p| p.get("activityLevel").cloned()).collect())
+                        .map(|pts| {
+                            pts.iter()
+                                .filter_map(|p| p.get("activityLevel").cloned())
+                                .collect()
+                        })
                         .unwrap_or_default();
                     if levels.is_empty() {
                         ("activity_levels", None, None)
@@ -2236,7 +2554,11 @@ pub(crate) async fn build_daily_summary(auth: &Arc<AuthState>, date: NaiveDate) 
                         ("activity_levels", Some(json!(levels)), None)
                     }
                 }
-                Err(e) => ("activity_levels", None, Some(format!("activity-level: {e}"))),
+                Err(e) => (
+                    "activity_levels",
+                    None,
+                    Some(format!("activity-level: {e}")),
+                ),
             }
         }));
     }
@@ -2258,7 +2580,10 @@ pub(crate) async fn build_daily_summary(auth: &Arc<AuthState>, date: NaiveDate) 
     summary
 }
 
-async fn daily_summary(auth: &Arc<AuthState>, date: NaiveDate) -> Result<CallToolResult, CallToolError> {
+async fn daily_summary(
+    auth: &Arc<AuthState>,
+    date: NaiveDate,
+) -> Result<CallToolResult, CallToolError> {
     let key = format!("summary:{}", date);
     if let Some(mut cached) = auth.cache.get(&key).await {
         cached["_cached"] = json!(true);
@@ -2273,7 +2598,7 @@ async fn daily_summary(auth: &Arc<AuthState>, date: NaiveDate) -> Result<CallToo
     name = "clear_cache",
     title = "Clear Response Cache",
     description = "Clear in-memory response cache to force fresh live API fetches on subsequent queries.",
-    read_only_hint = false,
+    read_only_hint = false
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct ClearCache {}
@@ -2289,7 +2614,7 @@ impl ClearCache {
     name = "summary",
     title = "Daily Summary",
     description = "Full health summary for any date: steps, heart rate (avg/min/max/resting), calories (active/total), distance, active minutes, active zone minutes, floors, sleep (stages + summary), exercises, HRV, SpO2, respiratory rate, sleep temperature, weight, VO2max, nutrition, hydration, sedentary periods, activity levels. `today` and `yesterday` are shortcuts for this tool. Per-metric fetch failures, if any, are listed in `_errors`.",
-    read_only_hint = true,
+    read_only_hint = true
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct Summary {
@@ -2315,7 +2640,7 @@ impl Summary {
     name = "today",
     title = "Today Summary",
     description = "Get a full health summary for today: steps, heart rate (avg/min/max/resting), calories (active/total), distance, active minutes, active zone minutes, floors, sleep (stages + summary), exercises, HRV, SpO2, respiratory rate, sleep temperature, weight, sedentary periods.",
-    read_only_hint = true,
+    read_only_hint = true
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct Today {}
@@ -2330,7 +2655,7 @@ impl Today {
     name = "yesterday",
     title = "Yesterday Summary",
     description = "Get a full health summary for yesterday: steps, heart rate (avg/min/max/resting), calories (active/total), distance, active minutes, active zone minutes, floors, sleep (stages + summary), exercises, HRV, SpO2, respiratory rate, sleep temperature, weight, sedentary periods.",
-    read_only_hint = true,
+    read_only_hint = true
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct Yesterday {}
@@ -2347,7 +2672,7 @@ impl Yesterday {
     name = "get_trends",
     title = "Get Health Trends",
     description = "Get daily time series for a health metric over a date range. Returns per-day aggregated values. Only works with dailyRollUp-compatible types. Use list_data_types to check.",
-    read_only_hint = true,
+    read_only_hint = true
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct GetTrends {
@@ -2455,7 +2780,7 @@ fn snake_to_camel(s: &str) -> String {
     title = "Delete Data Points by Filter",
     description = "Delete all data points matching a filter. Use with caution - this is destructive.",
     read_only_hint = false,
-    destructive_hint = true,
+    destructive_hint = true
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 pub struct DeleteByFilter {
@@ -2470,7 +2795,10 @@ pub struct DeleteByFilter {
 
 impl DeleteByFilter {
     pub async fn call_tool(&self, auth: &Arc<AuthState>) -> Result<CallToolResult, CallToolError> {
-        let max_count = self.max_count.unwrap_or(100).min(10000).max(1) as usize;
+        if let Some(e) = check_segment(&self.data_type, "data_type") {
+            return e;
+        }
+        let max_count = self.max_count.unwrap_or(100).clamp(1, 10000) as usize;
 
         // Phase 1: list data points matching the filter, collecting resource names.
         let mut names: Vec<String> = Vec::new();
@@ -2483,7 +2811,13 @@ impl DeleteByFilter {
                 start_time: None,
                 end_time: None,
                 // Sleep/exercise cap at 25 per page; use 25 for those, 100 for others.
-                page_size: Some(if self.data_type == "sleep" || self.data_type == "exercise" { 25 } else { 100 }),
+                page_size: Some(
+                    if self.data_type == "sleep" || self.data_type == "exercise" {
+                        25
+                    } else {
+                        100
+                    },
+                ),
                 page_token: page_token.clone(),
                 raw: Some(true),
             };
@@ -2637,9 +2971,16 @@ mod tests {
     #[test]
     fn test_sync_data_points_build_filter() {
         let f1 = SyncDataPoints::build_filter("heart-rate", "2026-07-26T00:00:00Z", None);
-        assert_eq!(f1, "heart_rate.sample_time.physical_time >= \"2026-07-26T00:00:00Z\"");
+        assert_eq!(
+            f1,
+            "heart_rate.sample_time.physical_time >= \"2026-07-26T00:00:00Z\""
+        );
 
-        let f2 = SyncDataPoints::build_filter("steps", "2026-07-26T00:00:00Z", Some("2026-07-27T00:00:00Z"));
+        let f2 = SyncDataPoints::build_filter(
+            "steps",
+            "2026-07-26T00:00:00Z",
+            Some("2026-07-27T00:00:00Z"),
+        );
         assert_eq!(f2, "steps.interval.start_time >= \"2026-07-26T00:00:00Z\" AND steps.interval.start_time < \"2026-07-27T00:00:00Z\"");
 
         let f3 = SyncDataPoints::build_filter("sleep", "2026-07-26T00:00:00Z", None);
@@ -2649,4 +2990,3 @@ mod tests {
         assert_eq!(f4, "daily_resting_heart_rate.date >= \"2026-07-26\"");
     }
 }
-

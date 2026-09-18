@@ -84,7 +84,9 @@ impl AuthState {
     }
 
     fn is_valid(t: &TokenState) -> bool {
-        !t.access_token.is_empty() && t.expires_at.is_some_and(|e| Instant::now() + EXPIRY_MARGIN < e)
+        !t.access_token.is_empty()
+            && t.expires_at
+                .is_some_and(|e| Instant::now() + EXPIRY_MARGIN < e)
     }
 
     /// Cached token if valid; otherwise refresh under single-flight gate.
@@ -143,7 +145,10 @@ impl AuthState {
                 .as_str()
                 .or_else(|| body["error"].as_str())
                 .unwrap_or("unknown error");
-            return Err(format!("OAuth refresh failed (HTTP {}): {desc}", status.as_u16()));
+            return Err(format!(
+                "OAuth refresh failed (HTTP {}): {desc}",
+                status.as_u16()
+            ));
         }
         let access_token = body["access_token"]
             .as_str()
@@ -181,7 +186,12 @@ impl AuthState {
     }
 
     /// 401 → refresh once → retry; 429/5xx/network → retry with backoff.
-    async fn request(&self, method: Method, url: &str, payload: Option<&Value>) -> Result<Value, String> {
+    async fn request(
+        &self,
+        method: Method,
+        url: &str,
+        payload: Option<&Value>,
+    ) -> Result<Value, String> {
         let mut last_err = String::new();
         for attempt in 0..=RETRY_DELAYS_MS.len() {
             let token = match self.get_token().await {
@@ -199,7 +209,8 @@ impl AuthState {
                 Ok((status, body)) => {
                     let (status, body) = if status == 401 {
                         let fresh = self.refresh_if_stale(&token).await?;
-                        self.do_request(method.clone(), url, &fresh, payload).await?
+                        self.do_request(method.clone(), url, &fresh, payload)
+                            .await?
                     } else {
                         (status, body)
                     };

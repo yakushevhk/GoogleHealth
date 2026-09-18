@@ -1,0 +1,788 @@
+[
+  {
+    "category": "activity",
+    "daily_rollup": true,
+    "description": "Step counts over time intervals.",
+    "filter_name": "steps",
+    "gotchas": [
+      "list returns intervals WITHOUT values; use dailyRollUp for totals"
+    ],
+    "id": "steps",
+    "key_fields": [
+      "countSum"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": true,
+    "rollup_range_days": 90,
+    "time_field": "interval_start",
+    "writable": false
+  },
+  {
+    "category": "activity",
+    "daily_rollup": true,
+    "description": "Active (exercise) calories burned over intervals.",
+    "filter_name": "active_energy_burned",
+    "gotchas": [
+      "list returns intervals WITHOUT values; use rollUp/dailyRollUp for kcalSum"
+    ],
+    "id": "active-energy-burned",
+    "key_fields": [
+      "kcalSum"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": true,
+    "rollup_range_days": 90,
+    "time_field": "interval_start",
+    "writable": false
+  },
+  {
+    "category": "activity",
+    "daily_rollup": true,
+    "description": "Distance travelled over intervals (millimeters).",
+    "filter_name": "distance",
+    "gotchas": [
+      "values are in millimeters; divide by 1_000_000 for km"
+    ],
+    "id": "distance",
+    "key_fields": [
+      "millimetersSum"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": true,
+    "rollup_range_days": 90,
+    "time_field": "interval_start",
+    "writable": false
+  },
+  {
+    "category": "activity",
+    "daily_rollup": true,
+    "description": "Active minutes bucketed by activity level.",
+    "filter_name": "active_minutes",
+    "gotchas": [
+      "14-day rollup range limit"
+    ],
+    "id": "active-minutes",
+    "key_fields": [
+      "activeMinutesRollupByActivityLevel"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": true,
+    "rollup_range_days": 14,
+    "time_field": "interval_start",
+    "writable": false
+  },
+  {
+    "category": "activity",
+    "daily_rollup": true,
+    "description": "Minutes spent in fat-burn / cardio / peak heart-rate zones.",
+    "filter_name": "active_zone_minutes",
+    "gotchas": [],
+    "id": "active-zone-minutes",
+    "key_fields": [
+      "sumInFatBurnHeartZone",
+      "sumInCardioHeartZone",
+      "sumInPeakHeartZone"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": true,
+    "rollup_range_days": 90,
+    "time_field": "interval_start",
+    "writable": false
+  },
+  {
+    "category": "activity",
+    "daily_rollup": true,
+    "description": "Discrete activity-level segments (still, walking, running, ...).",
+    "filter_name": "activity_level",
+    "gotchas": [],
+    "id": "activity-level",
+    "key_fields": [
+      "activityLevel"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": true,
+    "rollup_range_days": 90,
+    "time_field": "interval_start",
+    "writable": false
+  },
+  {
+    "category": "activity",
+    "daily_rollup": true,
+    "description": "Altitude readings over intervals (meters).",
+    "filter_name": "altitude",
+    "gotchas": [],
+    "id": "altitude",
+    "key_fields": [
+      "metersAvg",
+      "metersMax",
+      "metersMin"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": true,
+    "rollup_range_days": 90,
+    "time_field": "interval_start",
+    "writable": false
+  },
+  {
+    "category": "activity",
+    "daily_rollup": true,
+    "description": "Continuous sedentary (inactive) periods.",
+    "filter_name": "sedentary_period",
+    "gotchas": [],
+    "id": "sedentary-period",
+    "key_fields": [
+      "interval"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": true,
+    "rollup_range_days": 90,
+    "time_field": "interval_start",
+    "writable": false
+  },
+  {
+    "category": "activity",
+    "daily_rollup": true,
+    "description": "Swim pool-length counts per interval.",
+    "filter_name": "swim_lengths_data",
+    "gotchas": [],
+    "id": "swim-lengths-data",
+    "key_fields": [
+      "swimLengthsSum"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": true,
+    "rollup_range_days": 90,
+    "time_field": "interval_start",
+    "writable": false
+  },
+  {
+    "category": "activity",
+    "daily_rollup": true,
+    "description": "Time spent in each heart-rate zone.",
+    "filter_name": "time_in_heart_rate_zone",
+    "gotchas": [],
+    "id": "time-in-heart-rate-zone",
+    "key_fields": [
+      "timeInHeartRateZone"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": true,
+    "rollup_range_days": 90,
+    "time_field": "interval_start",
+    "writable": false
+  },
+  {
+    "category": "cardiac",
+    "daily_rollup": true,
+    "description": "Instantaneous heart-rate samples (BPM).",
+    "filter_name": "heart_rate",
+    "gotchas": [
+      "14-day rollup range limit"
+    ],
+    "id": "heart-rate",
+    "key_fields": [
+      "beatsPerMinute",
+      "beatsPerMinuteAvg",
+      "beatsPerMinuteMax",
+      "beatsPerMinuteMin"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": true,
+    "rollup_range_days": 14,
+    "time_field": "sample_physical",
+    "writable": false
+  },
+  {
+    "category": "body",
+    "daily_rollup": true,
+    "description": "Body weight samples (kilograms).",
+    "filter_name": "weight",
+    "gotchas": [
+      "writable via add_weight_sample"
+    ],
+    "id": "weight",
+    "key_fields": [
+      "kilograms"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": true,
+    "rollup_range_days": 90,
+    "time_field": "sample_physical",
+    "writable": true
+  },
+  {
+    "category": "body",
+    "daily_rollup": false,
+    "description": "Height samples (meters).",
+    "filter_name": "height",
+    "gotchas": [
+      "no rollUp support"
+    ],
+    "id": "height",
+    "key_fields": [
+      "meters"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": false,
+    "rollup_range_days": 90,
+    "time_field": "sample_physical",
+    "writable": false
+  },
+  {
+    "category": "body",
+    "daily_rollup": true,
+    "description": "Body fat percentage samples.",
+    "filter_name": "body_fat",
+    "gotchas": [],
+    "id": "body-fat",
+    "key_fields": [
+      "percentage"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": true,
+    "rollup_range_days": 90,
+    "time_field": "sample_physical",
+    "writable": false
+  },
+  {
+    "category": "nutrition",
+    "daily_rollup": true,
+    "description": "Blood glucose samples.",
+    "filter_name": "blood_glucose",
+    "gotchas": [
+      "unit depends on user settings"
+    ],
+    "id": "blood-glucose",
+    "key_fields": [
+      "millimolesPerLiter",
+      "milligramsPerDeciliter"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": true,
+    "rollup_range_days": 90,
+    "time_field": "sample_physical",
+    "writable": false
+  },
+  {
+    "category": "temperature",
+    "daily_rollup": true,
+    "description": "Core body temperature samples (Celsius).",
+    "filter_name": "core_body_temperature",
+    "gotchas": [],
+    "id": "core-body-temperature",
+    "key_fields": [
+      "celsius"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": true,
+    "rollup_range_days": 90,
+    "time_field": "sample_physical",
+    "writable": false
+  },
+  {
+    "category": "cardiac",
+    "daily_rollup": false,
+    "description": "HRV (RMSSD) samples in milliseconds.",
+    "filter_name": "heart_rate_variability",
+    "gotchas": [
+      "no rollUp support; use daily-heart-rate-variability for daily aggregates"
+    ],
+    "id": "heart-rate-variability",
+    "key_fields": [
+      "rootMeanSquareOfSuccessiveDifferencesMilliseconds"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": false,
+    "rollup_range_days": 90,
+    "time_field": "sample_physical",
+    "writable": false
+  },
+  {
+    "category": "oxygen",
+    "daily_rollup": false,
+    "description": "Blood oxygen saturation (SpO2) samples, percentage.",
+    "filter_name": "oxygen_saturation",
+    "gotchas": [
+      "no rollUp support; use daily-oxygen-saturation for daily aggregates"
+    ],
+    "id": "oxygen-saturation",
+    "key_fields": [
+      "percentage"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": false,
+    "rollup_range_days": 90,
+    "time_field": "sample_physical",
+    "writable": false
+  },
+  {
+    "category": "respiratory",
+    "daily_rollup": false,
+    "description": "Per-sleep-stage respiratory rate summary (breaths/min).",
+    "filter_name": "respiratory_rate_sleep_summary",
+    "gotchas": [
+      "no rollUp support"
+    ],
+    "id": "respiratory-rate-sleep-summary",
+    "key_fields": [
+      "breathsPerMinuteDeepSleep",
+      "breathsPerMinuteLightSleep",
+      "breathsPerMinuteRemSleep"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": false,
+    "rollup_range_days": 90,
+    "time_field": "sample_physical",
+    "writable": false
+  },
+  {
+    "category": "activity",
+    "daily_rollup": false,
+    "description": "VO2 max samples (ml/min/kg).",
+    "filter_name": "vo2_max",
+    "gotchas": [
+      "no rollUp support; use daily-vo2-max for daily aggregates"
+    ],
+    "id": "vo2-max",
+    "key_fields": [
+      "millilitersPerMinuteKilogramMax"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": false,
+    "rollup_range_days": 90,
+    "time_field": "sample_physical",
+    "writable": false
+  },
+  {
+    "category": "activity",
+    "daily_rollup": true,
+    "description": "Running-specific VO2 max samples (ml/min/kg).",
+    "filter_name": "run_vo2_max",
+    "gotchas": [],
+    "id": "run-vo2-max",
+    "key_fields": [
+      "millilitersPerMinuteKilogramMax"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": true,
+    "rollup_range_days": 90,
+    "time_field": "sample_physical",
+    "writable": false
+  },
+  {
+    "category": "cardiac",
+    "daily_rollup": false,
+    "description": "Daily resting heart rate (BPM).",
+    "filter_name": "daily_resting_heart_rate",
+    "gotchas": [
+      "already daily; filter on .date (YYYY-MM-DD)"
+    ],
+    "id": "daily-resting-heart-rate",
+    "key_fields": [
+      "beatsPerMinute"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": false,
+    "rollup_range_days": 90,
+    "time_field": "daily",
+    "writable": false
+  },
+  {
+    "category": "cardiac",
+    "daily_rollup": false,
+    "description": "Daily HRV aggregate (RMSSD avg, ms).",
+    "filter_name": "daily_heart_rate_variability",
+    "gotchas": [
+      "already daily; filter on .date (YYYY-MM-DD)"
+    ],
+    "id": "daily-heart-rate-variability",
+    "key_fields": [
+      "rootMeanSquareOfSuccessiveDifferencesMillisecondsAvg"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": false,
+    "rollup_range_days": 90,
+    "time_field": "daily",
+    "writable": false
+  },
+  {
+    "category": "cardiac",
+    "daily_rollup": false,
+    "description": "Daily time-in-heart-rate-zone aggregate.",
+    "filter_name": "daily_heart_rate_zones",
+    "gotchas": [
+      "already daily; filter on .date (YYYY-MM-DD)"
+    ],
+    "id": "daily-heart-rate-zones",
+    "key_fields": [
+      "timeInHeartRateZone"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": false,
+    "rollup_range_days": 90,
+    "time_field": "daily",
+    "writable": false
+  },
+  {
+    "category": "oxygen",
+    "daily_rollup": false,
+    "description": "Daily SpO2 aggregate (percentage avg).",
+    "filter_name": "daily_oxygen_saturation",
+    "gotchas": [
+      "already daily; filter on .date (YYYY-MM-DD)"
+    ],
+    "id": "daily-oxygen-saturation",
+    "key_fields": [
+      "percentageAvg"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": false,
+    "rollup_range_days": 90,
+    "time_field": "daily",
+    "writable": false
+  },
+  {
+    "category": "respiratory",
+    "daily_rollup": false,
+    "description": "Daily respiratory rate aggregate (breaths/min).",
+    "filter_name": "daily_respiratory_rate",
+    "gotchas": [
+      "already daily; filter on .date (YYYY-MM-DD)"
+    ],
+    "id": "daily-respiratory-rate",
+    "key_fields": [
+      "breathsPerMinuteAvg"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": false,
+    "rollup_range_days": 90,
+    "time_field": "daily",
+    "writable": false
+  },
+  {
+    "category": "sleep",
+    "daily_rollup": false,
+    "description": "Nightly skin/sleep temperature deviation from baseline (Celsius).",
+    "filter_name": "daily_sleep_temperature_derivations",
+    "gotchas": [
+      "already daily; filter on .date (YYYY-MM-DD)"
+    ],
+    "id": "daily-sleep-temperature-derivations",
+    "key_fields": [
+      "deviationFromBaselineCelsius"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": false,
+    "rollup_range_days": 90,
+    "time_field": "daily",
+    "writable": false
+  },
+  {
+    "category": "activity",
+    "daily_rollup": false,
+    "description": "Daily VO2 max aggregate (ml/min/kg).",
+    "filter_name": "daily_vo2_max",
+    "gotchas": [
+      "already daily; filter on .date (YYYY-MM-DD)"
+    ],
+    "id": "daily-vo2-max",
+    "key_fields": [
+      "millilitersPerMinuteKilogramMax"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": false,
+    "rollup_range_days": 90,
+    "time_field": "daily",
+    "writable": false
+  },
+  {
+    "category": "sleep",
+    "daily_rollup": false,
+    "description": "Sleep sessions with stages and summary.",
+    "filter_name": "sleep",
+    "gotchas": [
+      "page size capped at 25",
+      "filter on sleep.interval.end_time (or civil_end_time), not start_time"
+    ],
+    "id": "sleep",
+    "key_fields": [
+      "stages",
+      "minutesAsleep",
+      "minutesInSleepPeriod",
+      "sleepType"
+    ],
+    "listable": true,
+    "page_cap": 25,
+    "reconcilable": true,
+    "rollup": false,
+    "rollup_range_days": 90,
+    "time_field": "interval_end",
+    "writable": true
+  },
+  {
+    "category": "activity",
+    "daily_rollup": false,
+    "description": "Exercise sessions with type, duration, and metrics.",
+    "filter_name": "exercise",
+    "gotchas": [
+      "page size capped at 25",
+      "filter uses exercise.interval.civil_start_time (date)",
+      "exportable to TCX via export_exercise_tcx"
+    ],
+    "id": "exercise",
+    "key_fields": [
+      "exerciseType",
+      "metrics",
+      "duration"
+    ],
+    "listable": true,
+    "page_cap": 25,
+    "reconcilable": true,
+    "rollup": false,
+    "rollup_range_days": 90,
+    "time_field": "interval_civil_start",
+    "writable": true
+  },
+  {
+    "category": "nutrition",
+    "daily_rollup": true,
+    "description": "Hydration events (time only).",
+    "filter_name": "hydration_log",
+    "gotchas": [
+      "API v4 does not support volume recording; time only",
+      "filter uses hydration_log.interval.civil_start_time (date)"
+    ],
+    "id": "hydration-log",
+    "key_fields": [
+      "interval"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": true,
+    "rollup_range_days": 90,
+    "time_field": "interval_civil_start",
+    "writable": true
+  },
+  {
+    "category": "nutrition",
+    "daily_rollup": true,
+    "description": "Meal events (meal type and time only).",
+    "filter_name": "nutrition_log",
+    "gotchas": [
+      "API v4 does not support nutrient recording; meal type and time only",
+      "filter uses nutrition_log.interval.civil_start_time (date)"
+    ],
+    "id": "nutrition-log",
+    "key_fields": [
+      "mealType",
+      "interval"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": true,
+    "rollup_range_days": 90,
+    "time_field": "interval_civil_start",
+    "writable": true
+  },
+  {
+    "category": "clinical",
+    "daily_rollup": false,
+    "description": "Irregular rhythm (AFib) notification events.",
+    "filter_name": "irregular_rhythm_notification",
+    "gotchas": [
+      "filter uses irregular_rhythm_notification.interval.civil_start_time (date)"
+    ],
+    "id": "irregular-rhythm-notification",
+    "key_fields": [
+      "interval"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": false,
+    "rollup_range_days": 90,
+    "time_field": "interval_civil_start",
+    "writable": false
+  },
+  {
+    "category": "clinical",
+    "daily_rollup": false,
+    "description": "ECG recordings with classification and signal.",
+    "filter_name": "electrocardiogram",
+    "gotchas": [
+      "filter supports >= only, no upper bound"
+    ],
+    "id": "electrocardiogram",
+    "key_fields": [
+      "classification",
+      "signal"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": true,
+    "rollup": false,
+    "rollup_range_days": 90,
+    "time_field": "interval_start",
+    "writable": false
+  },
+  {
+    "category": "nutrition",
+    "daily_rollup": false,
+    "description": "Reference catalog of foods.",
+    "filter_name": "food",
+    "gotchas": [
+      "reference catalog, no time filter"
+    ],
+    "id": "food",
+    "key_fields": [
+      "foodName"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": false,
+    "rollup": false,
+    "rollup_range_days": 90,
+    "time_field": "none",
+    "writable": false
+  },
+  {
+    "category": "nutrition",
+    "daily_rollup": false,
+    "description": "Reference catalog of food measurement units.",
+    "filter_name": "food_measurement_unit",
+    "gotchas": [
+      "reference catalog, no time filter"
+    ],
+    "id": "food-measurement-unit",
+    "key_fields": [
+      "measurementUnit"
+    ],
+    "listable": true,
+    "page_cap": 10000,
+    "reconcilable": false,
+    "rollup": false,
+    "rollup_range_days": 90,
+    "time_field": "none",
+    "writable": false
+  },
+  {
+    "category": "activity",
+    "daily_rollup": true,
+    "description": "Floors climbed aggregates.",
+    "filter_name": "floors",
+    "gotchas": [
+      "rollup-only, no list support"
+    ],
+    "id": "floors",
+    "key_fields": [
+      "floorsSum"
+    ],
+    "listable": false,
+    "page_cap": 10000,
+    "reconcilable": false,
+    "rollup": true,
+    "rollup_range_days": 90,
+    "time_field": "interval_start",
+    "writable": false
+  },
+  {
+    "category": "nutrition",
+    "daily_rollup": true,
+    "description": "Total (resting + active) calories burned aggregates.",
+    "filter_name": "total_calories",
+    "gotchas": [
+      "rollup-only, no list support",
+      "14-day rollup range limit"
+    ],
+    "id": "total-calories",
+    "key_fields": [
+      "kcalSum"
+    ],
+    "listable": false,
+    "page_cap": 10000,
+    "reconcilable": false,
+    "rollup": true,
+    "rollup_range_days": 14,
+    "time_field": "interval_start",
+    "writable": false
+  },
+  {
+    "category": "cardiac",
+    "daily_rollup": true,
+    "description": "Calories burned per heart-rate zone aggregates.",
+    "filter_name": "calories_in_heart_rate_zone",
+    "gotchas": [
+      "rollup-only, no list support",
+      "14-day rollup range limit"
+    ],
+    "id": "calories-in-heart-rate-zone",
+    "key_fields": [
+      "caloriesInHeartRateZone"
+    ],
+    "listable": false,
+    "page_cap": 10000,
+    "reconcilable": false,
+    "rollup": true,
+    "rollup_range_days": 14,
+    "time_field": "interval_start",
+    "writable": false
+  }
+]

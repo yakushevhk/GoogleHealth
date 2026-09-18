@@ -1,0 +1,1060 @@
+[
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "List data points for any Google Health data type. Filter syntax depends on record type: Interval types use '{type}.interval.start_time >= \"RFC3339\" AND {type}.interval.start_time < \"RFC3339\"'; Sample types use '{type}.sample_time.physical_time >= \"RFC3339\"'; Daily types use '{type}.date >= \"YYYY-MM-DD\"'; Sleep uses 'sleep.interval.end_time'; Exercise/hydration-log/nutrition-log/irregular-rhythm-notification use '{type}.interval.civil_start_time >= \"YYYY-MM-DD\"'; ECG uses 'electrocardiogram.interval.start_time >= \"RFC3339\"' (only >=). In filters use snake_case (heart_rate), in data_type use kebab-case (heart-rate). Types without list support: floors, calories-in-heart-rate-zone, total-calories (use rollup instead). food and food-measurement-unit do not support filters. TIP: Use list_data_types to discover available types. Use dailyRollUp for steps/distance/floors totals (list returns intervals without values).",
+    "inputSchema": {
+      "properties": {
+        "data_type": {
+          "description": "Data type ID (kebab-case): steps, sleep, heart-rate, active-energy-burned, oxygen-saturation, distance, exercise, weight, height, body-fat, blood-glucose, core-body-temperature, heart-rate-variability, daily-resting-heart-rate, daily-heart-rate-variability, daily-heart-rate-zones, daily-oxygen-saturation, daily-respiratory-rate, daily-sleep-temperature-derivations, daily-vo2-max, vo2-max, run-vo2-max, active-minutes, active-zone-minutes, activity-level, altitude, electrocardiogram, food, food-measurement-unit, hydration-log, irregular-rhythm-notification, nutrition-log, respiratory-rate-sleep-summary, sedentary-period, swim-lengths-data, time-in-heart-rate-zone",
+          "type": "string"
+        },
+        "end_time": {
+          "description": "Optional end time (RFC3339 or YYYY-MM-DD). Used with start_time.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "filter": {
+          "description": "Filter expression (AIP-160 syntax). Leave empty for types that don't support filters (food, food-measurement-unit). If provided, overrides any auto-built filter from start_time/end_time.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "page_size": {
+          "description": "Page size (default 1440, max 10000; exercise/sleep max 25)",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "page_token": {
+          "description": "Page token for pagination",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "raw": {
+          "description": "If true, return the full raw API response. Default false returns simplified output (strips dataSource/createTime/updateTime and empty objects from each point).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "start_time": {
+          "description": "Optional start time (RFC3339 or YYYY-MM-DD). If provided with end_time, builds the filter automatically.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "data_type"
+      ],
+      "type": "object"
+    },
+    "name": "list_data_points",
+    "title": "List Data Points"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "Get a single data point by its ID.",
+    "inputSchema": {
+      "properties": {
+        "data_point_id": {
+          "description": "Data point ID (from the name field of a listed data point)",
+          "type": "string"
+        },
+        "data_type": {
+          "description": "Data type ID (kebab-case)",
+          "type": "string"
+        },
+        "raw": {
+          "description": "If true, return the full raw API response. Default false returns simplified output.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "data_type",
+        "data_point_id"
+      ],
+      "type": "object"
+    },
+    "name": "get_data_point",
+    "title": "Get Data Point"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "Reconcile (deduplicate/merge) data points for a data type. Same filter syntax as list. Supports dataSourceFamily filter. This is a read-only operation (GET request).",
+    "inputSchema": {
+      "properties": {
+        "data_source_family": {
+          "description": "Data source family: users/me/dataSourceFamilies/all-sources (default), users/me/dataSourceFamilies/google-wearables, users/me/dataSourceFamilies/google-sources",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "data_type": {
+          "description": "Data type ID (kebab-case)",
+          "type": "string"
+        },
+        "filter": {
+          "description": "Filter expression (same syntax as list)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "page_size": {
+          "description": "Page size",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "page_token": {
+          "description": "Page token",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "raw": {
+          "description": "If true, return the full raw API response. Default false returns simplified output.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "data_type"
+      ],
+      "type": "object"
+    },
+    "name": "reconcile_data_points",
+    "title": "Reconcile Data Points"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "Perform incremental synchronization (Delta Sync) for a data type using the reconcile endpoint. Automatically builds time filter for data created or updated after `since_time`. This is a read-only operation.",
+    "inputSchema": {
+      "properties": {
+        "data_source_family": {
+          "description": "Data source family filter (optional)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "data_type": {
+          "description": "Data type ID (kebab-case), e.g. steps, heart-rate, sleep, weight",
+          "type": "string"
+        },
+        "page_size": {
+          "description": "Page size for pagination",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "page_token": {
+          "description": "Page token for pagination",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "raw": {
+          "description": "If true, return the full raw API response. Default false returns simplified output.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "since_time": {
+          "description": "Start timestamp for incremental sync (RFC3339, e.g. 2026-07-26T00:00:00Z or YYYY-MM-DD for daily types)",
+          "type": "string"
+        },
+        "until_time": {
+          "description": "Optional end timestamp for sync window (RFC3339 or YYYY-MM-DD)",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "data_type",
+        "since_time"
+      ],
+      "type": "object"
+    },
+    "name": "sync_data_points",
+    "title": "Sync Data Points (Incremental Sync)"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "Aggregate data points into time buckets. Body: range (Interval with startTime/endTime RFC3339), windowSize (duration e.g. '3600s', '86400s'). Max range: 14 days for heart-rate/active-minutes/total-calories/calories-in-heart-rate-zone, 90 days for others. Response field: rollupDataPoints. Note: heart-rate, active-minutes, total-calories, calories-in-heart-rate-zone have a 14-day range limit.",
+    "inputSchema": {
+      "properties": {
+        "data_source_family": {
+          "description": "Data source family (optional)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "data_type": {
+          "description": "Data type ID (kebab-case): steps, heart-rate, active-energy-burned, distance, weight, altitude, body-fat, floors, total-calories, active-zone-minutes, sedentary-period, run-vo2-max, calories-in-heart-rate-zone, activity-level, nutrition-log, hydration-log, time-in-heart-rate-zone, active-minutes, swim-lengths-data, core-body-temperature, blood-glucose",
+          "type": "string"
+        },
+        "end_time": {
+          "description": "Range end time (RFC3339, e.g. 2026-07-22T00:00:00Z)",
+          "type": "string"
+        },
+        "page_size": {
+          "description": "Page size (default 1440, max 10000)",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "page_token": {
+          "description": "Page token",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "raw": {
+          "description": "If true, return the full raw API response. Default false returns simplified output.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "start_time": {
+          "description": "Range start time (RFC3339, e.g. 2026-07-15T00:00:00Z)",
+          "type": "string"
+        },
+        "window_size": {
+          "description": "Window size as duration string (e.g. 3600s for hourly, 86400s for daily)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "data_type",
+        "start_time",
+        "end_time",
+        "window_size"
+      ],
+      "type": "object"
+    },
+    "name": "rollup_data_points",
+    "title": "RollUp Data Points"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "Aggregate data points into daily buckets using civil (local) time. Range uses date objects: start/end with year/month/day. Response field: rollupDataPoints with civilStartTime/civilEndTime. Note: heart-rate, active-minutes, total-calories, calories-in-heart-rate-zone have a 14-day range limit.",
+    "inputSchema": {
+      "properties": {
+        "data_source_family": {
+          "description": "Data source family (optional)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "data_type": {
+          "description": "Data type ID (kebab-case): same as rollup",
+          "type": "string"
+        },
+        "end_date": {
+          "description": "End date (YYYY-MM-DD, exclusive)",
+          "type": "string"
+        },
+        "page_size": {
+          "description": "Page size",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "page_token": {
+          "description": "Page token",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "raw": {
+          "description": "If true, return the full raw API response. Default false returns simplified output.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "start_date": {
+          "description": "Start date (YYYY-MM-DD)",
+          "type": "string"
+        },
+        "window_size_days": {
+          "description": "Window size in days (default 1)",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "data_type",
+        "start_date",
+        "end_date"
+      ],
+      "type": "object"
+    },
+    "name": "daily_rollup_data_points",
+    "title": "Daily RollUp Data Points"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "readOnlyHint": false
+    },
+    "description": "Create a new data point. Supported types: sleep, exercise, weight, height, body-fat, hydration-log, nutrition-log. Provide the DataPoint body as a JSON object. Example for weight: {\"weight\":{\"sampleTime\":{\"physicalTime\":\"2026-07-22T08:00:00Z\",\"utcOffset\":\"0s\"},\"weightGrams\":70000}}",
+    "inputSchema": {
+      "properties": {
+        "body": {
+          "description": "The DataPoint body as JSON"
+        },
+        "data_type": {
+          "description": "Data type ID (kebab-case): sleep, exercise, weight, height, body-fat, hydration-log, nutrition-log",
+          "type": "string"
+        },
+        "dry_run": {
+          "description": "If true, show the API request that would be made without executing it.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "data_type",
+        "body"
+      ],
+      "type": "object"
+    },
+    "name": "create_data_point",
+    "title": "Create Data Point"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Add a weight measurement in kg.",
+    "inputSchema": {
+      "properties": {
+        "dry_run": {
+          "description": "If true, show the API request that would be made without executing it.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "description": "Timestamp in RFC3339 format (defaults to current time if omitted)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "utc_offset": {
+          "description": "UTC offset string (e.g. \"0s\", \"3600s\"). Default \"0s\".",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "weight_kg": {
+          "description": "Weight in kilograms (e.g. 70.0)",
+          "type": "number"
+        }
+      },
+      "required": [
+        "weight_kg"
+      ],
+      "type": "object"
+    },
+    "name": "add_weight_sample",
+    "title": "Add Weight Sample"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Log a hydration event (time of drinking). Note: Google Health API v4 does not support recording volume.",
+    "inputSchema": {
+      "properties": {
+        "dry_run": {
+          "description": "If true, show the API request that would be made without executing it.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "end_time": {
+          "description": "End timestamp in RFC3339 format (defaults to start_time)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "start_time": {
+          "description": "Start timestamp in RFC3339 format (defaults to current time)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "utc_offset": {
+          "description": "UTC offset string (e.g. \"0s\", \"3600s\"). Default \"0s\".",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "name": "add_hydration_log",
+    "title": "Add Hydration Log"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Log a sleep session specifying start and end times. The API does not support titles/notes on sleep sessions.",
+    "inputSchema": {
+      "properties": {
+        "dry_run": {
+          "description": "If true, show the API request without executing it.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "end_time": {
+          "description": "End timestamp in RFC3339 format (e.g. 2026-07-26T07:00:00Z)",
+          "type": "string"
+        },
+        "start_time": {
+          "description": "Start timestamp in RFC3339 format (e.g. 2026-07-25T23:00:00Z)",
+          "type": "string"
+        },
+        "utc_offset": {
+          "description": "UTC offset string (e.g. \"0s\", \"3600s\"). Default \"0s\".",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "start_time",
+        "end_time"
+      ],
+      "type": "object"
+    },
+    "name": "add_sleep_session",
+    "title": "Add Sleep Session"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Log an exercise session (workout). Exercise types: RUNNING, WALKING, CYCLING, STRENGTH_TRAINING, SWIMMING, YOGA, TREADMILL, HIIT, etc. The API does not support titles/notes on exercise sessions.",
+    "inputSchema": {
+      "properties": {
+        "dry_run": {
+          "description": "If true, show the API request without executing it.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "end_time": {
+          "description": "End timestamp in RFC3339 format (e.g. 2026-07-26T10:30:00Z)",
+          "type": "string"
+        },
+        "exercise_type": {
+          "description": "Exercise type (e.g. RUNNING, WALKING, CYCLING, STRENGTH_TRAINING, SWIMMING)",
+          "type": "string"
+        },
+        "start_time": {
+          "description": "Start timestamp in RFC3339 format (e.g. 2026-07-26T10:00:00Z)",
+          "type": "string"
+        },
+        "utc_offset": {
+          "description": "UTC offset string (e.g. \"0s\", \"3600s\"). Default \"0s\".",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "exercise_type",
+        "start_time",
+        "end_time"
+      ],
+      "type": "object"
+    },
+    "name": "add_exercise_session",
+    "title": "Add Exercise Session"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Log a meal by type and time. The API only supports mealType and interval; nutrient details and food names are not supported.",
+    "inputSchema": {
+      "properties": {
+        "dry_run": {
+          "description": "If true, show the API request without executing it.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "end_time": {
+          "description": "End timestamp in RFC3339 format (defaults to start_time + 30min)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "meal_type": {
+          "description": "Meal type: BREAKFAST, LUNCH, DINNER, SNACK",
+          "type": "string"
+        },
+        "start_time": {
+          "description": "Start timestamp in RFC3339 format (defaults to current time)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "utc_offset": {
+          "description": "UTC offset string (e.g. \"0s\", \"3600s\"). Default \"0s\".",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "meal_type"
+      ],
+      "type": "object"
+    },
+    "name": "add_nutrition_log",
+    "title": "Add Nutrition Log"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "Compare health metrics (steps, active calories, etc.) between two date ranges (Period A vs Period B).",
+    "inputSchema": {
+      "properties": {
+        "period_a_end": {
+          "description": "End date for Period A (YYYY-MM-DD)",
+          "type": "string"
+        },
+        "period_a_start": {
+          "description": "Start date for Period A (YYYY-MM-DD)",
+          "type": "string"
+        },
+        "period_b_end": {
+          "description": "End date for Period B (YYYY-MM-DD)",
+          "type": "string"
+        },
+        "period_b_start": {
+          "description": "Start date for Period B (YYYY-MM-DD)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "period_a_start",
+        "period_a_end",
+        "period_b_start",
+        "period_b_end"
+      ],
+      "type": "object"
+    },
+    "name": "compare_health_periods",
+    "title": "Compare Health Periods"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "Analyze HRV (Heart Rate Variability) and resting heart rate trends over past N days to evaluate physical recovery status.",
+    "inputSchema": {
+      "properties": {
+        "days": {
+          "description": "Number of past days to analyze (default 14, max 90)",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "end_date": {
+          "description": "End date (YYYY-MM-DD, defaults to today)",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "name": "get_hrv_recovery_trend",
+    "title": "Get HRV & Recovery Trend"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "Get core body temperature and daily sleep temperature derivations for a period.",
+    "inputSchema": {
+      "properties": {
+        "end_date": {
+          "description": "End date (YYYY-MM-DD)",
+          "type": "string"
+        },
+        "start_date": {
+          "description": "Start date (YYYY-MM-DD)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start_date",
+        "end_date"
+      ],
+      "type": "object"
+    },
+    "name": "get_temperature_summary",
+    "title": "Get Temperature Summary"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Clear in-memory response cache to force fresh live API fetches on subsequent queries.",
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "clear_cache",
+    "title": "Clear Response Cache"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "readOnlyHint": false
+    },
+    "description": "Update an existing data point. Provide data type, data point ID, and the fields to update as a JSON object.",
+    "inputSchema": {
+      "properties": {
+        "body": {
+          "description": "Fields to update as JSON (DataPoint structure)"
+        },
+        "data_point_id": {
+          "description": "Data point ID",
+          "type": "string"
+        },
+        "data_type": {
+          "description": "Data type ID (kebab-case)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "data_type",
+        "data_point_id",
+        "body"
+      ],
+      "type": "object"
+    },
+    "name": "patch_data_point",
+    "title": "Patch Data Point"
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "readOnlyHint": false
+    },
+    "description": "Delete a single data point by its data type and data point ID.",
+    "inputSchema": {
+      "properties": {
+        "data_point_id": {
+          "description": "Data point ID (from listed data point name or ID)",
+          "type": "string"
+        },
+        "data_type": {
+          "description": "Data type ID (kebab-case)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "data_type",
+        "data_point_id"
+      ],
+      "type": "object"
+    },
+    "name": "delete_data_point",
+    "title": "Delete Data Point"
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "readOnlyHint": false
+    },
+    "description": "Delete multiple data points by their full resource names. Max 10000 per request. Supported types: sleep, exercise, weight, height, body-fat, hydration-log, nutrition-log.",
+    "inputSchema": {
+      "properties": {
+        "data_type": {
+          "description": "Data type ID (kebab-case), or '-' for cross-type delete",
+          "type": "string"
+        },
+        "names": {
+          "description": "List of full resource names to delete (e.g. [\"users/me/dataTypes/weight/dataPoints/123456\"])",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "data_type",
+        "names"
+      ],
+      "type": "object"
+    },
+    "name": "batch_delete_data_points",
+    "title": "Batch Delete Data Points"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "Export an exercise data point as TCX (Training Center XML). Requires both activity_and_fitness.readonly and location.readonly scopes. Add ?alt=media for raw TCX download.",
+    "inputSchema": {
+      "properties": {
+        "data_point_id": {
+          "description": "Data point ID of the exercise (numeric)",
+          "type": "string"
+        },
+        "partial_data": {
+          "description": "Include partial data when GPS unavailable (default false)",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "data_point_id"
+      ],
+      "type": "object"
+    },
+    "name": "export_exercise_tcx",
+    "title": "Export Exercise TCX"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "Get the user's Google Health profile (name, birthdate, gender, etc).",
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "get_profile",
+    "title": "Get Profile"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Update the user's Google Health profile fields. Provide fields as a JSON object.",
+    "inputSchema": {
+      "properties": {
+        "body": {
+          "description": "Profile fields to update as JSON"
+        }
+      },
+      "required": [
+        "body"
+      ],
+      "type": "object"
+    },
+    "name": "update_profile",
+    "title": "Update Profile"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "Get the user's Google Health settings (units, preferences).",
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "get_settings",
+    "title": "Get Settings"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Update the user's Google Health settings. Provide fields as a JSON object.",
+    "inputSchema": {
+      "properties": {
+        "body": {
+          "description": "Settings fields to update as JSON"
+        }
+      },
+      "required": [
+        "body"
+      ],
+      "type": "object"
+    },
+    "name": "update_settings",
+    "title": "Update Settings"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "Get the user's Google Health identity information.",
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "get_identity",
+    "title": "Get Identity"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "Get the user's Irregular Rhythm Notification profile.",
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "get_irn_profile",
+    "title": "Get IRN Profile"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "List all devices paired with the user's Google Health account.",
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "list_paired_devices",
+    "title": "List Paired Devices"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "Get details of a specific paired device.",
+    "inputSchema": {
+      "properties": {
+        "device_id": {
+          "description": "Device ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "device_id"
+      ],
+      "type": "object"
+    },
+    "name": "get_paired_device",
+    "title": "Get Paired Device"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "Get a full health summary for today: steps, heart rate (avg/min/max/resting), calories (active/total), distance, active minutes, active zone minutes, floors, sleep (stages + summary), exercises, HRV, SpO2, respiratory rate, sleep temperature, weight, sedentary periods.",
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "today",
+    "title": "Today Summary"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "Get a full health summary for yesterday: steps, heart rate (avg/min/max/resting), calories (active/total), distance, active minutes, active zone minutes, floors, sleep (stages + summary), exercises, HRV, SpO2, respiratory rate, sleep temperature, weight, sedentary periods.",
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "yesterday",
+    "title": "Yesterday Summary"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "Full health summary for any date: steps, heart rate (avg/min/max/resting), calories (active/total), distance, active minutes, active zone minutes, floors, sleep (stages + summary), exercises, HRV, SpO2, respiratory rate, sleep temperature, weight, VO2max, nutrition, hydration, sedentary periods, activity levels. `today` and `yesterday` are shortcuts for this tool. Per-metric fetch failures, if any, are listed in `_errors`.",
+    "inputSchema": {
+      "properties": {
+        "date": {
+          "description": "Date in YYYY-MM-DD format. Defaults to today (server local time) if omitted.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "name": "summary",
+    "title": "Daily Summary"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "Get daily time series for a health metric over a date range. Returns per-day aggregated values. Only works with dailyRollUp-compatible types. Use list_data_types to check.",
+    "inputSchema": {
+      "properties": {
+        "data_type": {
+          "description": "Data type (e.g. steps, heart-rate, active-energy-burned, distance, floors)",
+          "type": "string"
+        },
+        "end_date": {
+          "description": "End date (YYYY-MM-DD)",
+          "type": "string"
+        },
+        "start_date": {
+          "description": "Start date (YYYY-MM-DD)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "data_type",
+        "start_date",
+        "end_date"
+      ],
+      "type": "object"
+    },
+    "name": "get_trends",
+    "title": "Get Health Trends"
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "readOnlyHint": false
+    },
+    "description": "Delete all data points matching a filter. Use with caution - this is destructive.",
+    "inputSchema": {
+      "properties": {
+        "data_type": {
+          "description": "Data type (kebab-case)",
+          "type": "string"
+        },
+        "filter": {
+          "description": "AIP-160 filter expression",
+          "type": "string"
+        },
+        "max_count": {
+          "description": "Maximum number of points to delete (default 100, max 10000)",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "data_type",
+        "filter"
+      ],
+      "type": "object"
+    },
+    "name": "delete_by_filter",
+    "title": "Delete Data Points by Filter"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "List all 39 supported Google Health API v4 data types with their categories, supported operations, and key fields. Use this to discover what data is available before calling other tools.",
+    "inputSchema": {
+      "properties": {
+        "category": {
+          "description": "Optional category filter (activity, cardiac, body, sleep, nutrition, respiratory, oxygen, temperature, clinical)",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "name": "list_data_types",
+    "title": "List Data Types"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "Get detailed information about a specific data type: supported operations, filter syntax, page limits, rollup range, key response fields, and gotchas.",
+    "inputSchema": {
+      "properties": {
+        "data_type": {
+          "description": "Data type ID (kebab-case, e.g. \"heart-rate\", \"daily-resting-heart-rate\")",
+          "type": "string"
+        }
+      },
+      "required": [
+        "data_type"
+      ],
+      "type": "object"
+    },
+    "name": "describe_data_type",
+    "title": "Describe Data Type"
+  }
+]

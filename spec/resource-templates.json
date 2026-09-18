@@ -1,0 +1,8 @@
+[
+  {
+    "description": "Full daily health summary for a date (YYYY-MM-DD)",
+    "mimeType": "application/json",
+    "name": "Daily Summary",
+    "uriTemplate": "health://summary/{date}"
+  }
+]

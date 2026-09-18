@@ -6,7 +6,7 @@ license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
     "mcp>=2.0.0",
-    "mcp-types>=2.0.0",
+    "python-dotenv>=1.0.0",
     "httpx>=0.27.0",
     "starlette>=0.37",
     "uvicorn>=0.30.0",
@@ -16,4 +16,19 @@ dependencies = [
 Repository = "https://github.com/yakushevhk/GoogleHealth"
 
 [project.scripts]
-google-health-mcp = "src.server:main"
+google-health-mcp = "google_health_mcp.server:main"
+
+[tool.ruff]
+target-version = "py311"
+
+[tool.ruff.lint]
+ignore = [
+    # Tool handlers map all exceptions to MCP error results by design — this is
+    # the error channel, matching Rust's api_err/err results.
+    "BLE001",
+    # date.today() intentionally uses server-local time for today/yesterday.
+    "DTZ011",
+    # Best-effort fetch helpers deliberately swallow per-metric failures.
+    "S110",
+    "SIM102",
+]

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -265,7 +266,7 @@ func (a *AuthState) request(method, url string, payload []byte) (json.RawMessage
 				time.Sleep(time.Duration(retryDelaysMs[attempt]) * time.Millisecond)
 				continue
 			}
-			return nil, fmt.Errorf("%s", lastErr)
+			return nil, errors.New(lastErr)
 		}
 
 		status, body, err := a.doRequest(method, url, token, payload)
@@ -275,7 +276,7 @@ func (a *AuthState) request(method, url string, payload []byte) (json.RawMessage
 				time.Sleep(time.Duration(retryDelaysMs[attempt]) * time.Millisecond)
 				continue
 			}
-			return nil, fmt.Errorf("%s", lastErr)
+			return nil, errors.New(lastErr)
 		}
 
 		// 401 → refresh and retry once.
@@ -302,10 +303,10 @@ func (a *AuthState) request(method, url string, payload []byte) (json.RawMessage
 			}
 		}
 		// Other 4xx: don't retry.
-		return nil, fmt.Errorf("%s", lastErr)
+		return nil, errors.New(lastErr)
 	}
 
-	return nil, fmt.Errorf("%s", lastErr)
+	return nil, errors.New(lastErr)
 }
 
 // APIGet performs an authenticated GET request.

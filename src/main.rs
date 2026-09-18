@@ -9,15 +9,15 @@ use rust_mcp_sdk::{
     auth::{AuthInfo, AuthProvider, AuthenticationError},
     error::SdkResult,
     event_store::InMemoryEventStore,
-    mcp_server::{server_runtime, McpServerOptions, ServerHandler, ServerRuntime},
     mcp_http::{DnsRebindingOptions, GenericBody, McpAppState, McpHttpError},
+    mcp_server::{server_runtime, McpServerOptions, ServerHandler, ServerRuntime},
     schema::{
         schema_utils::CallToolError, CallToolRequestParams, CallToolResult, GetPromptRequestParams,
-        GetPromptResult, Implementation, InitializeResult, ListPromptsResult, ListResourcesResult,
-        ListResourceTemplatesResult, ListToolsResult, PaginatedRequestParams, Prompt, PromptArgument,
-        PromptMessage, ProtocolVersion, ReadResourceRequestParams, ReadResourceResult, Role, RpcError,
-        ServerCapabilities, ServerCapabilitiesPrompts, ServerCapabilitiesResources,
-        ServerCapabilitiesTools, TextContent, TextResourceContents,
+        GetPromptResult, Implementation, InitializeResult, ListPromptsResult,
+        ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, PaginatedRequestParams,
+        Prompt, PromptArgument, PromptMessage, ProtocolVersion, ReadResourceRequestParams,
+        ReadResourceResult, Role, RpcError, ServerCapabilities, ServerCapabilitiesPrompts,
+        ServerCapabilitiesResources, ServerCapabilitiesTools, TextContent, TextResourceContents,
     },
     tool_box, McpServer, StdioTransport, ToMcpServerHandler, TransportOptions,
 };
@@ -32,8 +32,13 @@ struct StaticTokenAuth {
 fn constant_time_eq(a: &str, b: &str) -> bool {
     let ab = a.as_bytes();
     let bb = b.as_bytes();
-    if ab.len() != bb.len() { return false; }
-    ab.iter().zip(bb.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+    if ab.len() != bb.len() {
+        return false;
+    }
+    ab.iter()
+        .zip(bb.iter())
+        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+        == 0
 }
 
 #[async_trait]
@@ -46,7 +51,9 @@ impl AuthProvider for StaticTokenAuth {
                 user_id: Some("user".into()),
                 scopes: None,
                 audience: None,
-                expires_at: Some(std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(4102444800)),
+                expires_at: Some(
+                    std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(4102444800),
+                ),
                 extra: None,
             })
         } else {
@@ -137,8 +144,7 @@ impl ServerHandler for HealthHandler {
         params: CallToolRequestParams,
         _runtime: Arc<dyn McpServer>,
     ) -> Result<CallToolResult, CallToolError> {
-        let tool: HealthTools =
-            HealthTools::try_from(params).map_err(CallToolError::new)?;
+        let tool: HealthTools = HealthTools::try_from(params).map_err(CallToolError::new)?;
         match tool {
             HealthTools::ListDataPoints(t) => t.call_tool(&self.auth).await,
             HealthTools::GetDataPoint(t) => t.call_tool(&self.auth).await,
@@ -215,21 +221,28 @@ impl ServerHandler for HealthHandler {
         match uri.as_str() {
             "health://profile" => self.json_resource(&format!("{BASE}/profile"), &uri).await,
             "health://settings" => self.json_resource(&format!("{BASE}/settings"), &uri).await,
-            "health://devices" => self.json_resource(&format!("{BASE}/pairedDevices"), &uri).await,
+            "health://devices" => {
+                self.json_resource(&format!("{BASE}/pairedDevices"), &uri)
+                    .await
+            }
             u if u.starts_with("health://summary/") => {
                 let date_str = &u["health://summary/".len()..];
-                let date = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d").map_err(|_| {
-                    RpcError::invalid_request().with_message(format!(
-                        "Invalid date in resource URI (expected YYYY-MM-DD): {date_str}"
-                    ))
-                })?;
+                let date =
+                    chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d").map_err(|_| {
+                        RpcError::invalid_request().with_message(format!(
+                            "Invalid date in resource URI (expected YYYY-MM-DD): {date_str}"
+                        ))
+                    })?;
                 let summary = build_daily_summary(&self.auth, date).await;
                 Ok(json_resource_result(
                     &serde_json::to_string_pretty(&summary).unwrap_or_default(),
                     &uri,
                 ))
             }
-            _ => Err(RpcError::invalid_request().with_message(format!("Unknown resource URI: {uri}"))),
+            _ => {
+                Err(RpcError::invalid_request()
+                    .with_message(format!("Unknown resource URI: {uri}")))
+            }
         }
     }
 
@@ -243,11 +256,15 @@ impl ServerHandler for HealthHandler {
                 Prompt {
                     name: "health_weekly_review".into(),
                     title: Some("Weekly Health Review".into()),
-                    description: Some("Comprehensive 7-day health, sleep, and workout review".into()),
+                    description: Some(
+                        "Comprehensive 7-day health, sleep, and workout review".into(),
+                    ),
                     arguments: vec![PromptArgument {
                         name: "end_date".into(),
                         title: Some("End Date".into()),
-                        description: Some("End date in YYYY-MM-DD format (defaults to today)".into()),
+                        description: Some(
+                            "End date in YYYY-MM-DD format (defaults to today)".into(),
+                        ),
                         required: Some(false),
                     }],
                     icons: vec![],
@@ -294,7 +311,10 @@ impl ServerHandler for HealthHandler {
         let args = params.arguments.unwrap_or_default();
         let text = match name {
             "health_weekly_review" => {
-                let end_date = args.get("end_date").cloned().unwrap_or_else(|| "today".into());
+                let end_date = args
+                    .get("end_date")
+                    .cloned()
+                    .unwrap_or_else(|| "today".into());
                 format!("Please review my health data up to {end_date}. Use `summary` for the past 7 days to evaluate step trends, sleep duration/stages, resting heart rate, active calories, and overall recovery. Highlight any key trends or anomalies.\n\nAdditional analysis to include:\n- Evaluate sleep stage distribution (deep/REM percentages, sleep efficiency)\n- Analyze HR zone breakdown across activities\n- Check temperature anomalies from daily-sleep-temperature-derivations\n- Review respiratory rate trends from daily-respiratory-rate")
             }
             "sleep_quality_analysis" => {
@@ -305,7 +325,11 @@ impl ServerHandler for HealthHandler {
                 let days = args.get("days").cloned().unwrap_or_else(|| "7".into());
                 format!("Please compile a summary of my workouts over the past {days} days. Use `list_data_points` for `exercise`, `active-zone-minutes`, and `calories-in-heart-rate-zone`. Show workout types, total durations, calories burned, and intensity zones.\n\nAdditional analysis to include:\n- Analyze heart rate zone durations per workout (lightTime/moderateTime/vigorousTime/peakTime)\n- Track active zone minutes across sessions\n- Compare pace and heart rate trends over time")
             }
-            _ => return Err(RpcError::invalid_request().with_message(format!("Unknown prompt: {name}"))),
+            _ => {
+                return Err(
+                    RpcError::invalid_request().with_message(format!("Unknown prompt: {name}"))
+                )
+            }
         };
         Ok(GetPromptResult {
             description: Some(format!("Health analysis prompt: {name}")),
@@ -343,7 +367,7 @@ fn server_details() -> InitializeResult {
     InitializeResult {
         server_info: Implementation {
             name: "google-health-mcp".into(),
-            version: "0.2.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             title: Some("Google Health API MCP Server".into()),
             description: Some(
                 "Full Google Health API access: 39 data types, all methods (list, get, reconcile, rollUp, dailyRollUp, create, patch, batchDelete, exportTcx, delta sync), profile, settings, devices, high-level helpers. MCP tools, resources, resource templates, and prompts.".into(),
@@ -390,8 +414,7 @@ fn server_details() -> InitializeResult {
 #[tokio::main]
 async fn main() -> SdkResult<()> {
     let _ = dotenvy::dotenv();
-    let client_id =
-        std::env::var("GOOGLE_CLIENT_ID").expect("GOOGLE_CLIENT_ID env var required");
+    let client_id = std::env::var("GOOGLE_CLIENT_ID").expect("GOOGLE_CLIENT_ID env var required");
     let client_secret =
         std::env::var("GOOGLE_CLIENT_SECRET").expect("GOOGLE_CLIENT_SECRET env var required");
     let refresh_token =
@@ -403,7 +426,10 @@ async fn main() -> SdkResult<()> {
 
     if http_mode {
         let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".into());
-        let port: u16 = std::env::var("PORT").unwrap_or_else(|_| "3000".into()).parse().unwrap_or(3000);
+        let port: u16 = std::env::var("PORT")
+            .unwrap_or_else(|_| "3000".into())
+            .parse()
+            .unwrap_or(3000);
         let api_key = std::env::var("MCP_API_KEY").unwrap_or_else(|_| {
             eprintln!("MCP_API_KEY env var required for HTTP mode");
             std::process::exit(1);

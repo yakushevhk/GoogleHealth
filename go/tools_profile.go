@@ -17,6 +17,10 @@ func exportExerciseTcxHandler(ctx context.Context, req mcp.CallToolRequest) (*mc
 	dataPointID, _ := args["data_point_id"].(string)
 	partialData, _ := args["partial_data"].(bool)
 
+	if r := checkPointID(dataPointID); r != nil {
+		return r, nil
+	}
+
 	params := []string{"alt=media"}
 	if partialData {
 		params = append(params, "partialData=true")
@@ -131,6 +135,9 @@ func listPairedDevicesHandler(ctx context.Context, req mcp.CallToolRequest) (*mc
 func getPairedDeviceHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	auth := ctx.Value(authKey{}).(*AuthState)
 	deviceID, _ := req.GetArguments()["device_id"].(string)
+	if r := checkSegment(deviceID, "device_id"); r != nil {
+		return r, nil
+	}
 	resp, err := auth.APIGet(fmt.Sprintf("%s/pairedDevices/%s", base, deviceID))
 	if err != nil {
 		return apiErr(err.Error())

@@ -2,20 +2,23 @@
 
 import asyncio
 import hmac
+import json
 import os
 import sys
-import json
 from typing import Any
 
+from dotenv import load_dotenv
 from mcp.server import MCPServer
-from mcp.types import Tool as MCPTool, TextContent, CallToolResult
-from mcp_types import ToolAnnotations
+from mcp.types import CallToolResult, TextContent, ToolAnnotations
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
 
 from .auth import AuthState
 from .tools import TOOL_HANDLERS
+
+# Load .env like the other implementations (dotenvy/godotenv/Bun).
+load_dotenv()
 
 # ─── Env ──────────────────────────────────────────────────────────────────────
 
@@ -54,11 +57,16 @@ def _str(desc: str) -> dict:
 def _num(desc: str) -> dict:
     return {"type": "number", "description": desc}
 
+def _int(desc: str) -> dict:
+    return {"type": "integer", "description": desc}
+
 def _bool(desc: str) -> dict:
     return {"type": "boolean", "description": desc}
 
 def _obj(desc: str) -> dict:
-    return {"type": "object", "description": desc}
+    # Free-form JSON passthrough: the Rust reference (serde_json::Value) emits
+    # only a description, no type constraint.
+    return {"description": desc}
 
 def _arr(items_type: str, desc: str) -> dict:
     return {"type": "array", "items": {"type": items_type}, "description": desc}
@@ -67,6 +75,10 @@ def _schema(properties: dict, required: list[str] | None = None) -> dict:
     s: dict[str, Any] = {"type": "object", "properties": properties}
     if required:
         s["required"] = required
+    req = set(required or [])
+    for name, prop in properties.items():
+        if name not in req and isinstance(prop.get("type"), str):
+            prop["type"] = [prop["type"], "null"]
     return s
 
 
@@ -119,7 +131,7 @@ TOOL_SPECS: dict[str, dict] = {
             "filter": _str("Filter expression (AIP-160 syntax). Leave empty for types that don't support filters (food, food-measurement-unit). If provided, overrides any auto-built filter from start_time/end_time."),
             "start_time": _str("Optional start time (RFC3339 or YYYY-MM-DD). If provided with end_time, builds the filter automatically."),
             "end_time": _str("Optional end time (RFC3339 or YYYY-MM-DD). Used with start_time."),
-            "page_size": _num("Page size (default 1440, max 10000; exercise/sleep max 25)"),
+            "page_size": _int("Page size (default 1440, max 10000; exercise/sleep max 25)"),
             "page_token": _str("Page token for pagination"),
             "raw": _bool("If true, return the full raw API response. Default false returns simplified output (strips dataSource/createTime/updateTime and empty objects from each point)."),
         }, required=["data_type"]),
@@ -141,7 +153,7 @@ TOOL_SPECS: dict[str, dict] = {
         "inputSchema": _schema({
             "data_type": _str("Data type ID (kebab-case)"),
             "filter": _str("Filter expression (same syntax as list)"),
-            "page_size": _num("Page size"),
+            "page_size": _int("Page size"),
             "page_token": _str("Page token"),
             "data_source_family": _str("Data source family: users/me/dataSourceFamilies/all-sources (default), users/me/dataSourceFamilies/google-wearables, users/me/dataSourceFamilies/google-sources"),
             "raw": _bool("If true, return the full raw API response. Default false returns simplified output."),
@@ -155,7 +167,7 @@ TOOL_SPECS: dict[str, dict] = {
             "data_type": _str("Data type ID (kebab-case), e.g. steps, heart-rate, sleep, weight"),
             "since_time": _str("Start timestamp for incremental sync (RFC3339, e.g. 2026-07-26T00:00:00Z or YYYY-MM-DD for daily types)"),
             "until_time": _str("Optional end timestamp for sync window (RFC3339 or YYYY-MM-DD)"),
-            "page_size": _num("Page size for pagination"),
+            "page_size": _int("Page size for pagination"),
             "page_token": _str("Page token for pagination"),
             "data_source_family": _str("Data source family filter (optional)"),
             "raw": _bool("If true, return the full raw API response. Default false returns simplified output."),
@@ -175,7 +187,7 @@ TOOL_SPECS: dict[str, dict] = {
             "start_time": _str("Range start time (RFC3339, e.g. 2026-07-15T00:00:00Z)"),
             "end_time": _str("Range end time (RFC3339, e.g. 2026-07-22T00:00:00Z)"),
             "window_size": _str("Window size as duration string (e.g. 3600s for hourly, 86400s for daily)"),
-            "page_size": _num("Page size (default 1440, max 10000)"),
+            "page_size": _int("Page size (default 1440, max 10000)"),
             "page_token": _str("Page token"),
             "data_source_family": _str("Data source family (optional)"),
             "raw": _bool("If true, return the full raw API response. Default false returns simplified output."),
@@ -189,8 +201,8 @@ TOOL_SPECS: dict[str, dict] = {
             "data_type": _str("Data type ID (kebab-case): same as rollup"),
             "start_date": _str("Start date (YYYY-MM-DD)"),
             "end_date": _str("End date (YYYY-MM-DD, exclusive)"),
-            "window_size_days": _num("Window size in days (default 1)"),
-            "page_size": _num("Page size"),
+            "window_size_days": _int("Window size in days (default 1)"),
+            "page_size": _int("Page size"),
             "page_token": _str("Page token"),
             "data_source_family": _str("Data source family (optional)"),
             "raw": _bool("If true, return the full raw API response. Default false returns simplified output."),
@@ -298,7 +310,7 @@ TOOL_SPECS: dict[str, dict] = {
         "inputSchema": _schema({
             "data_type": _str("Data type (kebab-case)"),
             "filter": _str("AIP-160 filter expression"),
-            "max_count": _num("Maximum number of points to delete (default 100, max 10000)"),
+            "max_count": _int("Maximum number of points to delete (default 100, max 10000)"),
         }, required=["data_type", "filter"]),
     },
     "export_exercise_tcx": {
@@ -326,7 +338,7 @@ TOOL_SPECS: dict[str, dict] = {
         "description": "Analyze HRV (Heart Rate Variability) and resting heart rate trends over past N days to evaluate physical recovery status.",
         "annotations": {"readOnlyHint": True},
         "inputSchema": _schema({
-            "days": _num("Number of past days to analyze (default 14, max 90)"),
+            "days": _int("Number of past days to analyze (default 14, max 90)"),
             "end_date": _str("End date (YYYY-MM-DD, defaults to today)"),
         }),
     },
@@ -431,31 +443,33 @@ TOOL_SPECS: dict[str, dict] = {
     },
 }
 
-# Register tools: use a no-arg stub so the SDK doesn't error, then patch
-# the Tool object's parameters/description/title/annotations with correct values.
+# Register tools: add_tool derives `parameters` from the (empty) function
+# signature, so we patch the declared JSON schema onto the Tool afterwards —
+# ToolManager has no public setter. Title/description/annotations go through
+# the public add_tool API.
 for name in TOOL_HANDLERS:
     spec = TOOL_SPECS.get(name, {})
     desc = spec.get("description", name)
+    ann = spec.get("annotations")
 
     async def _noop() -> str:
         return "{}"
     _noop.__name__ = name
     _noop.__doc__ = desc
-    server.add_tool(_noop, name=name, description=desc)
+    server.add_tool(
+        _noop,
+        name=name,
+        title=spec.get("title"),
+        description=desc,
+        annotations=ToolAnnotations(
+            read_only_hint=ann.get("readOnlyHint"),
+            destructive_hint=ann.get("destructiveHint"),
+        ) if ann else None,
+    )
 
-    # Patch the registered Tool object with correct schema and metadata
-    tool_obj = server._tool_manager._tools.get(name)
+    tool_obj = server._tool_manager.get_tool(name)
     if tool_obj is not None and spec:
         tool_obj.parameters = spec.get("inputSchema", {"type": "object", "properties": {}})
-        tool_obj.description = desc
-        if "title" in spec:
-            tool_obj.title = spec["title"]
-        if "annotations" in spec:
-            ann = spec["annotations"]
-            tool_obj.annotations = ToolAnnotations(
-                read_only_hint=ann.get("readOnlyHint"),
-                destructive_hint=ann.get("destructiveHint"),
-            )
 
 
 # ─── Structured error recovery ───────────────────────────────────────────────
@@ -486,17 +500,31 @@ def _api_err(msg: str) -> dict:
     return {"error": msg}
 
 
-# Override call_tool to dispatch to our actual handlers
+# Override call_tool to dispatch to our actual handlers. Mirrors the Rust
+# reference: error dicts get isError=True and no structuredContent; success
+# dicts get structuredContent (objects only — arrays/scalars are text-only).
 async def _call_tool(name: str, arguments: dict | None = None, context=None):
     handler = TOOL_HANDLERS.get(name)
     if not handler:
-        return CallToolResult(content=[TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))], isError=True)
+        return CallToolResult(
+            content=[TextContent(type="text", text=f"ERROR: Unknown tool: {name}")],
+            isError=True,
+        )
     try:
         result = await handler(auth, arguments or {})
-        return CallToolResult(content=[TextContent(type="text", text=json.dumps(result, indent=2, default=str))])
     except Exception as e:
         err_body = _api_err(str(e))
-        return CallToolResult(content=[TextContent(type="text", text=json.dumps(err_body, indent=2))], isError=True)
+        return CallToolResult(
+            content=[TextContent(type="text", text=json.dumps(err_body, indent=2))],
+            isError=True,
+        )
+    # {"deleted_count": N, "error": ...} is a partial success in the Rust impl.
+    is_error = isinstance(result, dict) and "error" in result and "deleted_count" not in result
+    return CallToolResult(
+        content=[TextContent(type="text", text=json.dumps(result, indent=2, default=str))],
+        isError=is_error,
+        structuredContent=result if isinstance(result, dict) and not is_error else None,
+    )
 
 server.call_tool = _call_tool
 
@@ -518,6 +546,7 @@ async def resource_devices() -> str:
 @server.resource("health://summary/{date}", name="Daily Summary", description="Full daily health summary for a date (YYYY-MM-DD)", mime_type="application/json")
 async def resource_summary(date: str) -> str:
     from datetime import date as date_cls
+
     from .tools import build_daily_summary
     d = date_cls.fromisoformat(date)
     summary = await build_daily_summary(auth, d)

@@ -1,0 +1,20 @@
+[
+  {
+    "description": "Google Health user profile (name, birth date, gender)",
+    "mimeType": "application/json",
+    "name": "Health Profile",
+    "uri": "health://profile"
+  },
+  {
+    "description": "Google Health settings (units, preferences)",
+    "mimeType": "application/json",
+    "name": "Health Settings",
+    "uri": "health://settings"
+  },
+  {
+    "description": "Devices paired with the Google Health account",
+    "mimeType": "application/json",
+    "name": "Paired Devices",
+    "uri": "health://devices"
+  }
+]

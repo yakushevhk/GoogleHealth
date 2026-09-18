@@ -9,10 +9,10 @@ cd py
 python3 -m pip install -e .
 
 # stdio mode
-python3 -m src.server
+python3 -m google_health_mcp.server
 
 # HTTP mode
-python3 -m src.server --http
+python3 -m google_health_mcp.server --http
 ```
 
 ## Environment Variables

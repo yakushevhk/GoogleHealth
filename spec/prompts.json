@@ -1,0 +1,41 @@
+[
+  {
+    "arguments": [
+      {
+        "description": "End date in YYYY-MM-DD format (defaults to today)",
+        "name": "end_date",
+        "required": false,
+        "title": "End Date"
+      }
+    ],
+    "description": "Comprehensive 7-day health, sleep, and workout review",
+    "name": "health_weekly_review",
+    "title": "Weekly Health Review"
+  },
+  {
+    "arguments": [
+      {
+        "description": "Number of past days to analyze (default 7)",
+        "name": "days",
+        "required": false,
+        "title": "Days Count"
+      }
+    ],
+    "description": "Detailed sleep stages, HRV, and recovery analysis",
+    "name": "sleep_quality_analysis",
+    "title": "Sleep Quality Analysis"
+  },
+  {
+    "arguments": [
+      {
+        "description": "Number of past days to analyze (default 7)",
+        "name": "days",
+        "required": false,
+        "title": "Days Count"
+      }
+    ],
+    "description": "Exercise sessions and heart rate zone breakdown",
+    "name": "workout_summary",
+    "title": "Workout Summary"
+  }
+]

@@ -1,6 +1,6 @@
 """Registry of all 39 Google Health API v4 data types."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True, slots=True)

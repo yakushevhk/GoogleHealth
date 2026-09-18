@@ -3,27 +3,27 @@ import { DATA_TYPES, findType, categories, type DataTypeInfo } from "./types.ts"
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const enc = (s: string) => encodeURIComponent(s);
+export const enc = (s: string) => encodeURIComponent(s);
 
-function simplifyPoint(obj: any) {
+export function simplifyPoint(obj: any) {
   delete obj.dataSource; delete obj.createTime; delete obj.updateTime;
   for (const [k, v] of Object.entries(obj)) {
     if (v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 0) delete obj[k];
   }
 }
 
-function simplify(v: any) {
+export function simplify(v: any) {
   for (const key of ["dataPoints", "rollupDataPoints"]) {
     if (Array.isArray(v[key])) { v[key].forEach((p: any) => simplifyPoint(p)); return; }
   }
   simplifyPoint(v);
 }
 
-function paginationHint(v: any) {
+export function paginationHint(v: any) {
   if (v.nextPageToken) v._hint = "More data available. Pass nextPageToken to fetch the next page.";
 }
 
-function buildFilter(dataType: string, since: string, until?: string): string {
+export function buildFilter(dataType: string, since: string, until?: string): string {
   const snake = dataType.replace(/-/g, "_");
   const civil = (s: string) => s.slice(0, 10);
   let f: string;
@@ -50,23 +50,43 @@ function buildFilter(dataType: string, since: string, until?: string): string {
   return f;
 }
 
-function dateObj(d: Date) { return { year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate() }; }
-function parseDate(s: string): Date {
+export function dateObj(d: Date) { return { year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate() }; }
+export function parseDate(s: string): Date {
   const d = new Date(s + "T00:00:00");
   if (isNaN(d.getTime())) throw new Error(`Invalid date '${s}': expected YYYY-MM-DD`);
   return d;
 }
-function addDays(d: Date, n: number) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
-function fmt(d: Date) { return d.toISOString().slice(0, 10); }
+export function addDays(d: Date, n: number) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+export function fmt(d: Date) { return d.toISOString().slice(0, 10); }
 function round1(n: number) { return Math.round(n * 10) / 10; }
 function round2(n: number) { return Math.round(n * 100) / 100; }
-const num = (v: any): number => typeof v === "number" ? v : typeof v === "string" ? parseFloat(v) || 0 : 0;
+export const num = (v: any): number => typeof v === "number" ? v : typeof v === "string" ? parseFloat(v) || 0 : 0;
 
 // ─── Tool result type ────────────────────────────────────────────────────────
 
-type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean };
-const ok = (v: any): ToolResult => ({ content: [{ type: "text", text: JSON.stringify(v, null, 2) }] });
-const err = (msg: string): ToolResult => ({ content: [{ type: "text", text: `ERROR: ${msg}` }], isError: true });
+type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean; structuredContent?: Record<string, any> };
+// structuredContent must be an object; arrays/scalars are text-only.
+export const ok = (v: any): ToolResult => ({
+  content: [{ type: "text", text: JSON.stringify(v, null, 2) }],
+  ...(v && typeof v === "object" && !Array.isArray(v) ? { structuredContent: v } : {}),
+});
+export const err = (msg: string): ToolResult => ({ content: [{ type: "text", text: `ERROR: ${msg}` }], isError: true });
+
+// ─── Path safety ────────────────────────────────────────────────────────────
+// dataType/dataPointId/deviceId are interpolated into the Google API URL path.
+// Without validation, %2F decodes to / and dot-segments get normalized,
+// escaping into adjacent paths (dataPoints/../profile).
+
+export const SEGMENT_RE = /^[A-Za-z0-9_-]+$/;
+export const RESOURCE_NAME_RE = /^users\/(me|\d+)\/dataTypes\/[A-Za-z0-9_-]+\/dataPoints\/[A-Za-z0-9_-]+$/;
+
+export const segErr = (s: string, what: string): ToolResult | null =>
+  SEGMENT_RE.test(s) ? null : err(`${what} must consist of letters, digits, '-', or '_': ${JSON.stringify(s)}`);
+
+export const pointIdErr = (id: string): ToolResult | null => {
+  const valid = id.startsWith("users/") ? RESOURCE_NAME_RE.test(id) : SEGMENT_RE.test(id);
+  return valid ? null : err(`data_point_id must be a path segment or users/{user}/dataTypes/{type}/dataPoints/{id}: ${JSON.stringify(id)}`);
+};
 
 function apiErr(e: string): ToolResult {
   const lower = e.toLowerCase();
@@ -129,18 +149,14 @@ export const toolMeta: Record<string, { title: string; annotations?: { readOnlyH
 };
 
 // Discovery
-reg("list_data_types", "List all 39 supported Google Health API v4 data types with their categories, supported operations, and key fields. Use this to discover what data is available before calling other tools.", {
-  type: "object", properties: { category: { type: "string", description: "Optional category filter" } },
-}, async (_auth, { category }) => {
+reg("list_data_types", "List all 39 supported Google Health API v4 data types with their categories, supported operations, and key fields. Use this to discover what data is available before calling other tools.", {"properties": {"category": {"description": "Optional category filter (activity, cardiac, body, sleep, nutrition, respiratory, oxygen, temperature, clinical)","type": ["string","null"]}},"type": "object"}, async (_auth, { category }) => {
   const cat = (category || "").toLowerCase().trim();
   const matches = DATA_TYPES.filter((t) => !cat || t.category === cat);
   if (cat && matches.length === 0) return err(`Unknown category '${cat}'. Valid: ${categories().join(", ")}`);
   return ok({ count: matches.length, total: DATA_TYPES.length, categories: categories(), data_types: matches });
 });
 
-reg("describe_data_type", "Get detailed information about a specific data type: supported operations, filter syntax, page limits, rollup range, key response fields, and gotchas.", {
-  type: "object", properties: { data_type: { type: "string" } }, required: ["data_type"],
-}, async (_auth, { data_type }) => {
+reg("describe_data_type", "Get detailed information about a specific data type: supported operations, filter syntax, page limits, rollup range, key response fields, and gotchas.", {"properties": {"data_type": {"description": "Data type ID (kebab-case, e.g. \"heart-rate\", \"daily-resting-heart-rate\")","type": "string"}},"required": ["data_type"],"type": "object"}, async (_auth, { data_type }) => {
   const info = findType(data_type?.trim());
   if (!info) return err(`Unknown data type '${data_type}'. Use list_data_types to see all 39 valid kebab-case IDs.`);
   const labels: Record<string, string> = {
@@ -160,12 +176,9 @@ reg("describe_data_type", "Get detailed information about a specific data type: 
 });
 
 // Data
-reg("list_data_points", "List data points for any Google Health data type. Filter syntax depends on record type: Interval types use '{type}.interval.start_time >= \"RFC3339\" AND {type}.interval.start_time < \"RFC3339\"'; Sample types use '{type}.sample_time.physical_time >= \"RFC3339\"'; Daily types use '{type}.date >= \"YYYY-MM-DD\"'; Sleep uses 'sleep.interval.end_time'; Exercise/hydration-log/nutrition-log/irregular-rhythm-notification use '{type}.interval.civil_start_time >= \"YYYY-MM-DD\"'; ECG uses 'electrocardiogram.interval.start_time >= \"RFC3339\"' (only >=). In filters use snake_case (heart_rate), in data_type use kebab-case (heart-rate). Types without list support: floors, calories-in-heart-rate-zone, total-calories (use rollup instead). food and food-measurement-unit do not support filters. TIP: Use list_data_types to discover available types. Use dailyRollUp for steps/distance/floors totals (list returns intervals without values).", {
-  type: "object", properties: {
-    data_type: { type: "string" }, filter: { type: "string" }, start_time: { type: "string" },
-    end_time: { type: "string" }, page_size: { type: "number" }, page_token: { type: "string" }, raw: { type: "boolean" },
-  }, required: ["data_type"],
-}, async (auth, a) => {
+reg("list_data_points", "List data points for any Google Health data type. Filter syntax depends on record type: Interval types use '{type}.interval.start_time >= \"RFC3339\" AND {type}.interval.start_time < \"RFC3339\"'; Sample types use '{type}.sample_time.physical_time >= \"RFC3339\"'; Daily types use '{type}.date >= \"YYYY-MM-DD\"'; Sleep uses 'sleep.interval.end_time'; Exercise/hydration-log/nutrition-log/irregular-rhythm-notification use '{type}.interval.civil_start_time >= \"YYYY-MM-DD\"'; ECG uses 'electrocardiogram.interval.start_time >= \"RFC3339\"' (only >=). In filters use snake_case (heart_rate), in data_type use kebab-case (heart-rate). Types without list support: floors, calories-in-heart-rate-zone, total-calories (use rollup instead). food and food-measurement-unit do not support filters. TIP: Use list_data_types to discover available types. Use dailyRollUp for steps/distance/floors totals (list returns intervals without values).", {"properties": {"data_type": {"description": "Data type ID (kebab-case): steps, sleep, heart-rate, active-energy-burned, oxygen-saturation, distance, exercise, weight, height, body-fat, blood-glucose, core-body-temperature, heart-rate-variability, daily-resting-heart-rate, daily-heart-rate-variability, daily-heart-rate-zones, daily-oxygen-saturation, daily-respiratory-rate, daily-sleep-temperature-derivations, daily-vo2-max, vo2-max, run-vo2-max, active-minutes, active-zone-minutes, activity-level, altitude, electrocardiogram, food, food-measurement-unit, hydration-log, irregular-rhythm-notification, nutrition-log, respiratory-rate-sleep-summary, sedentary-period, swim-lengths-data, time-in-heart-rate-zone","type": "string"},"end_time": {"description": "Optional end time (RFC3339 or YYYY-MM-DD). Used with start_time.","type": ["string","null"]},"filter": {"description": "Filter expression (AIP-160 syntax). Leave empty for types that don't support filters (food, food-measurement-unit). If provided, overrides any auto-built filter from start_time/end_time.","type": ["string","null"]},"page_size": {"description": "Page size (default 1440, max 10000; exercise/sleep max 25)","type": ["integer","null"]},"page_token": {"description": "Page token for pagination","type": ["string","null"]},"raw": {"description": "If true, return the full raw API response. Default false returns simplified output (strips dataSource/createTime/updateTime and empty objects from each point).","type": ["boolean","null"]},"start_time": {"description": "Optional start time (RFC3339 or YYYY-MM-DD). If provided with end_time, builds the filter automatically.","type": ["string","null"]}},"required": ["data_type"],"type": "object"}, async (auth, a) => {
+  const bad = segErr(a.data_type, "data_type");
+  if (bad) return bad;
   let url = `${BASE}/dataTypes/${a.data_type}/dataPoints`;
   const params: string[] = [];
   const f = a.filter || (a.start_time ? buildFilter(a.data_type, a.start_time, a.end_time) : "");
@@ -180,10 +193,9 @@ reg("list_data_points", "List data points for any Google Health data type. Filte
   } catch (e: any) { return apiErr(e.message); }
 });
 
-reg("get_data_point", "Get a single data point by its ID.", {
-  type: "object", properties: { data_type: { type: "string" }, data_point_id: { type: "string" }, raw: { type: "boolean" } },
-  required: ["data_type", "data_point_id"],
-}, async (auth, a) => {
+reg("get_data_point", "Get a single data point by its ID.", {"properties": {"data_point_id": {"description": "Data point ID (from the name field of a listed data point)","type": "string"},"data_type": {"description": "Data type ID (kebab-case)","type": "string"},"raw": {"description": "If true, return the full raw API response. Default false returns simplified output.","type": ["boolean","null"]}},"required": ["data_type","data_point_id"],"type": "object"}, async (auth, a) => {
+  const bad = segErr(a.data_type, "data_type") || pointIdErr(a.data_point_id);
+  if (bad) return bad;
   const url = a.data_point_id.startsWith("users/")
     ? `https://health.googleapis.com/v4/${a.data_point_id}`
     : `${BASE}/dataTypes/${a.data_type}/dataPoints/${a.data_point_id}`;
@@ -191,10 +203,9 @@ reg("get_data_point", "Get a single data point by its ID.", {
   catch (e: any) { return apiErr(e.message); }
 });
 
-reg("reconcile_data_points", "Reconcile (deduplicate/merge) data points for a data type. Same filter syntax as list. Supports dataSourceFamily filter. This is a read-only operation (GET request).", {
-  type: "object", properties: { data_type: { type: "string" }, filter: { type: "string" }, page_size: { type: "number" }, page_token: { type: "string" }, data_source_family: { type: "string" }, raw: { type: "boolean" } },
-  required: ["data_type"],
-}, async (auth, a) => {
+reg("reconcile_data_points", "Reconcile (deduplicate/merge) data points for a data type. Same filter syntax as list. Supports dataSourceFamily filter. This is a read-only operation (GET request).", {"properties": {"data_source_family": {"description": "Data source family: users/me/dataSourceFamilies/all-sources (default), users/me/dataSourceFamilies/google-wearables, users/me/dataSourceFamilies/google-sources","type": ["string","null"]},"data_type": {"description": "Data type ID (kebab-case)","type": "string"},"filter": {"description": "Filter expression (same syntax as list)","type": ["string","null"]},"page_size": {"description": "Page size","type": ["integer","null"]},"page_token": {"description": "Page token","type": ["string","null"]},"raw": {"description": "If true, return the full raw API response. Default false returns simplified output.","type": ["boolean","null"]}},"required": ["data_type"],"type": "object"}, async (auth, a) => {
+  const bad = segErr(a.data_type, "data_type");
+  if (bad) return bad;
   let url = `${BASE}/dataTypes/${a.data_type}/dataPoints:reconcile`;
   const params: string[] = [];
   if (a.filter) params.push(`filter=${enc(a.filter)}`);
@@ -206,10 +217,9 @@ reg("reconcile_data_points", "Reconcile (deduplicate/merge) data points for a da
   catch (e: any) { return apiErr(e.message); }
 });
 
-reg("sync_data_points", "Perform incremental synchronization (Delta Sync) for a data type using the reconcile endpoint. Automatically builds time filter for data created or updated after `since_time`. This is a read-only operation.", {
-  type: "object", properties: { data_type: { type: "string" }, since_time: { type: "string" }, until_time: { type: "string" }, page_size: { type: "number" }, page_token: { type: "string" }, data_source_family: { type: "string" }, raw: { type: "boolean" } },
-  required: ["data_type", "since_time"],
-}, async (auth, a) => {
+reg("sync_data_points", "Perform incremental synchronization (Delta Sync) for a data type using the reconcile endpoint. Automatically builds time filter for data created or updated after `since_time`. This is a read-only operation.", {"properties": {"data_source_family": {"description": "Data source family filter (optional)","type": ["string","null"]},"data_type": {"description": "Data type ID (kebab-case), e.g. steps, heart-rate, sleep, weight","type": "string"},"page_size": {"description": "Page size for pagination","type": ["integer","null"]},"page_token": {"description": "Page token for pagination","type": ["string","null"]},"raw": {"description": "If true, return the full raw API response. Default false returns simplified output.","type": ["boolean","null"]},"since_time": {"description": "Start timestamp for incremental sync (RFC3339, e.g. 2026-07-26T00:00:00Z or YYYY-MM-DD for daily types)","type": "string"},"until_time": {"description": "Optional end timestamp for sync window (RFC3339 or YYYY-MM-DD)","type": ["string","null"]}},"required": ["data_type","since_time"],"type": "object"}, async (auth, a) => {
+  const bad = segErr(a.data_type, "data_type");
+  if (bad) return bad;
   const f = buildFilter(a.data_type, a.since_time, a.until_time);
   let url = `${BASE}/dataTypes/${a.data_type}/dataPoints:reconcile?filter=${enc(f)}`;
   if (a.page_size) url += `&pageSize=${a.page_size}`;
@@ -219,10 +229,9 @@ reg("sync_data_points", "Perform incremental synchronization (Delta Sync) for a 
   catch (e: any) { return apiErr(e.message); }
 });
 
-reg("rollup_data_points", "Aggregate data points into time buckets. Body: range (Interval with startTime/endTime RFC3339), windowSize (duration e.g. '3600s', '86400s'). Max range: 14 days for heart-rate/active-minutes/total-calories/calories-in-heart-rate-zone, 90 days for others. Response field: rollupDataPoints. Note: heart-rate, active-minutes, total-calories, calories-in-heart-rate-zone have a 14-day range limit.", {
-  type: "object", properties: { data_type: { type: "string" }, start_time: { type: "string" }, end_time: { type: "string" }, window_size: { type: "string" }, page_size: { type: "number" }, page_token: { type: "string" }, data_source_family: { type: "string" }, raw: { type: "boolean" } },
-  required: ["data_type", "start_time", "end_time", "window_size"],
-}, async (auth, a) => {
+reg("rollup_data_points", "Aggregate data points into time buckets. Body: range (Interval with startTime/endTime RFC3339), windowSize (duration e.g. '3600s', '86400s'). Max range: 14 days for heart-rate/active-minutes/total-calories/calories-in-heart-rate-zone, 90 days for others. Response field: rollupDataPoints. Note: heart-rate, active-minutes, total-calories, calories-in-heart-rate-zone have a 14-day range limit.", {"properties": {"data_source_family": {"description": "Data source family (optional)","type": ["string","null"]},"data_type": {"description": "Data type ID (kebab-case): steps, heart-rate, active-energy-burned, distance, weight, altitude, body-fat, floors, total-calories, active-zone-minutes, sedentary-period, run-vo2-max, calories-in-heart-rate-zone, activity-level, nutrition-log, hydration-log, time-in-heart-rate-zone, active-minutes, swim-lengths-data, core-body-temperature, blood-glucose","type": "string"},"end_time": {"description": "Range end time (RFC3339, e.g. 2026-07-22T00:00:00Z)","type": "string"},"page_size": {"description": "Page size (default 1440, max 10000)","type": ["integer","null"]},"page_token": {"description": "Page token","type": ["string","null"]},"raw": {"description": "If true, return the full raw API response. Default false returns simplified output.","type": ["boolean","null"]},"start_time": {"description": "Range start time (RFC3339, e.g. 2026-07-15T00:00:00Z)","type": "string"},"window_size": {"description": "Window size as duration string (e.g. 3600s for hourly, 86400s for daily)","type": "string"}},"required": ["data_type","start_time","end_time","window_size"],"type": "object"}, async (auth, a) => {
+  const bad = segErr(a.data_type, "data_type");
+  if (bad) return bad;
   const body: any = { range: { startTime: a.start_time, endTime: a.end_time }, windowSize: a.window_size };
   if (a.page_size) body.pageSize = a.page_size;
   if (a.page_token) body.pageToken = a.page_token;
@@ -231,10 +240,9 @@ reg("rollup_data_points", "Aggregate data points into time buckets. Body: range 
   catch (e: any) { return apiErr(e.message); }
 });
 
-reg("daily_rollup_data_points", "Aggregate data points into daily buckets using civil (local) time. Range uses date objects: start/end with year/month/day. Response field: rollupDataPoints with civilStartTime/civilEndTime. Note: heart-rate, active-minutes, total-calories, calories-in-heart-rate-zone have a 14-day range limit.", {
-  type: "object", properties: { data_type: { type: "string" }, start_date: { type: "string" }, end_date: { type: "string" }, window_size_days: { type: "number" }, page_size: { type: "number" }, page_token: { type: "string" }, data_source_family: { type: "string" }, raw: { type: "boolean" } },
-  required: ["data_type", "start_date", "end_date"],
-}, async (auth, a) => {
+reg("daily_rollup_data_points", "Aggregate data points into daily buckets using civil (local) time. Range uses date objects: start/end with year/month/day. Response field: rollupDataPoints with civilStartTime/civilEndTime. Note: heart-rate, active-minutes, total-calories, calories-in-heart-rate-zone have a 14-day range limit.", {"properties": {"data_source_family": {"description": "Data source family (optional)","type": ["string","null"]},"data_type": {"description": "Data type ID (kebab-case): same as rollup","type": "string"},"end_date": {"description": "End date (YYYY-MM-DD, exclusive)","type": "string"},"page_size": {"description": "Page size","type": ["integer","null"]},"page_token": {"description": "Page token","type": ["string","null"]},"raw": {"description": "If true, return the full raw API response. Default false returns simplified output.","type": ["boolean","null"]},"start_date": {"description": "Start date (YYYY-MM-DD)","type": "string"},"window_size_days": {"description": "Window size in days (default 1)","type": ["integer","null"]}},"required": ["data_type","start_date","end_date"],"type": "object"}, async (auth, a) => {
+  const bad = segErr(a.data_type, "data_type");
+  if (bad) return bad;
   try {
     const start = parseDate(a.start_date), end = parseDate(a.end_date);
     const body: any = { range: { start: { date: dateObj(start) }, end: { date: dateObj(end) } } };
@@ -249,20 +257,16 @@ reg("daily_rollup_data_points", "Aggregate data points into daily buckets using 
 });
 
 // Write
-reg("create_data_point", "Create a new data point. Supported types: sleep, exercise, weight, height, body-fat, hydration-log, nutrition-log. Provide the DataPoint body as a JSON object. Example for weight: {\"weight\":{\"sampleTime\":{\"physicalTime\":\"2026-07-22T08:00:00Z\",\"utcOffset\":\"0s\"},\"weightGrams\":70000}}", {
-  type: "object", properties: { data_type: { type: "string" }, body: { type: "object" }, dry_run: { type: "boolean" } },
-  required: ["data_type", "body"],
-}, async (auth, a) => {
+reg("create_data_point", "Create a new data point. Supported types: sleep, exercise, weight, height, body-fat, hydration-log, nutrition-log. Provide the DataPoint body as a JSON object. Example for weight: {\"weight\":{\"sampleTime\":{\"physicalTime\":\"2026-07-22T08:00:00Z\",\"utcOffset\":\"0s\"},\"weightGrams\":70000}}", {"properties": {"body": {"description": "The DataPoint body as JSON"},"data_type": {"description": "Data type ID (kebab-case): sleep, exercise, weight, height, body-fat, hydration-log, nutrition-log","type": "string"},"dry_run": {"description": "If true, show the API request that would be made without executing it.","type": ["boolean","null"]}},"required": ["data_type","body"],"type": "object"}, async (auth, a) => {
+  const bad = segErr(a.data_type, "data_type");
+  if (bad) return bad;
   const url = `${BASE}/dataTypes/${a.data_type}/dataPoints`;
   if (a.dry_run) return ok({ dry_run: true, method: "POST", url, body: a.body });
   try { const v = await auth.apiPost(url, a.body); auth.cache.clear(); return ok(v); }
   catch (e: any) { return apiErr(e.message); }
 });
 
-reg("add_weight_sample", "Add a weight measurement in kg.", {
-  type: "object", properties: { weight_kg: { type: "number" }, timestamp: { type: "string" }, utc_offset: { type: "string" }, dry_run: { type: "boolean" } },
-  required: ["weight_kg"],
-}, async (auth, a) => {
+reg("add_weight_sample", "Add a weight measurement in kg.", {"properties": {"dry_run": {"description": "If true, show the API request that would be made without executing it.","type": ["boolean","null"]},"timestamp": {"description": "Timestamp in RFC3339 format (defaults to current time if omitted)","type": ["string","null"]},"utc_offset": {"description": "UTC offset string (e.g. \"0s\", \"3600s\"). Default \"0s\".","type": ["string","null"]},"weight_kg": {"description": "Weight in kilograms (e.g. 70.0)","type": "number"}},"required": ["weight_kg"],"type": "object"}, async (auth, a) => {
   if (a.weight_kg <= 0 || a.weight_kg > 500) return err("weight_kg must be between 0 and 500 kg");
   const ts = a.timestamp || new Date().toISOString();
   const body = { weight: { sampleTime: { physicalTime: ts, utcOffset: a.utc_offset || "0s" }, weightGrams: Math.round(a.weight_kg * 1000) } };
@@ -272,9 +276,7 @@ reg("add_weight_sample", "Add a weight measurement in kg.", {
   catch (e: any) { return apiErr(e.message); }
 });
 
-reg("add_hydration_log", "Log a hydration event (time of drinking). Note: Google Health API v4 does not support recording volume.", {
-  type: "object", properties: { start_time: { type: "string" }, end_time: { type: "string" }, utc_offset: { type: "string" }, dry_run: { type: "boolean" } },
-}, async (auth, a) => {
+reg("add_hydration_log", "Log a hydration event (time of drinking). Note: Google Health API v4 does not support recording volume.", {"properties": {"dry_run": {"description": "If true, show the API request that would be made without executing it.","type": ["boolean","null"]},"end_time": {"description": "End timestamp in RFC3339 format (defaults to start_time)","type": ["string","null"]},"start_time": {"description": "Start timestamp in RFC3339 format (defaults to current time)","type": ["string","null"]},"utc_offset": {"description": "UTC offset string (e.g. \"0s\", \"3600s\"). Default \"0s\".","type": ["string","null"]}},"type": "object"}, async (auth, a) => {
   const start = a.start_time || new Date().toISOString();
   let end = a.end_time || start;
   if (start === end) end = new Date(new Date(start).getTime() + 60000).toISOString();
@@ -286,10 +288,7 @@ reg("add_hydration_log", "Log a hydration event (time of drinking). Note: Google
   catch (e: any) { return apiErr(e.message); }
 });
 
-reg("add_sleep_session", "Log a sleep session specifying start and end times. The API does not support titles/notes on sleep sessions.", {
-  type: "object", properties: { start_time: { type: "string" }, end_time: { type: "string" }, utc_offset: { type: "string" }, dry_run: { type: "boolean" } },
-  required: ["start_time", "end_time"],
-}, async (auth, a) => {
+reg("add_sleep_session", "Log a sleep session specifying start and end times. The API does not support titles/notes on sleep sessions.", {"properties": {"dry_run": {"description": "If true, show the API request without executing it.","type": ["boolean","null"]},"end_time": {"description": "End timestamp in RFC3339 format (e.g. 2026-07-26T07:00:00Z)","type": "string"},"start_time": {"description": "Start timestamp in RFC3339 format (e.g. 2026-07-25T23:00:00Z)","type": "string"},"utc_offset": {"description": "UTC offset string (e.g. \"0s\", \"3600s\"). Default \"0s\".","type": ["string","null"]}},"required": ["start_time","end_time"],"type": "object"}, async (auth, a) => {
   if (new Date(a.start_time) >= new Date(a.end_time)) return err("end_time must be after start_time");
   const off = a.utc_offset || "0s";
   const body = { sleep: { interval: { startTime: a.start_time, startUtcOffset: off, endTime: a.end_time, endUtcOffset: off } } };
@@ -299,10 +298,7 @@ reg("add_sleep_session", "Log a sleep session specifying start and end times. Th
   catch (e: any) { return apiErr(e.message); }
 });
 
-reg("add_exercise_session", "Log an exercise session (workout). Exercise types: RUNNING, WALKING, CYCLING, STRENGTH_TRAINING, SWIMMING, YOGA, TREADMILL, HIIT, etc. The API does not support titles/notes on exercise sessions.", {
-  type: "object", properties: { exercise_type: { type: "string" }, start_time: { type: "string" }, end_time: { type: "string" }, utc_offset: { type: "string" }, dry_run: { type: "boolean" } },
-  required: ["exercise_type", "start_time", "end_time"],
-}, async (auth, a) => {
+reg("add_exercise_session", "Log an exercise session (workout). Exercise types: RUNNING, WALKING, CYCLING, STRENGTH_TRAINING, SWIMMING, YOGA, TREADMILL, HIIT, etc. The API does not support titles/notes on exercise sessions.", {"properties": {"dry_run": {"description": "If true, show the API request without executing it.","type": ["boolean","null"]},"end_time": {"description": "End timestamp in RFC3339 format (e.g. 2026-07-26T10:30:00Z)","type": "string"},"exercise_type": {"description": "Exercise type (e.g. RUNNING, WALKING, CYCLING, STRENGTH_TRAINING, SWIMMING)","type": "string"},"start_time": {"description": "Start timestamp in RFC3339 format (e.g. 2026-07-26T10:00:00Z)","type": "string"},"utc_offset": {"description": "UTC offset string (e.g. \"0s\", \"3600s\"). Default \"0s\".","type": ["string","null"]}},"required": ["exercise_type","start_time","end_time"],"type": "object"}, async (auth, a) => {
   if (new Date(a.start_time) >= new Date(a.end_time)) return err("end_time must be after start_time");
   const off = a.utc_offset || "0s";
   const body = { exercise: { exerciseType: a.exercise_type.toUpperCase(), interval: { startTime: a.start_time, startUtcOffset: off, endTime: a.end_time, endUtcOffset: off } } };
@@ -312,10 +308,7 @@ reg("add_exercise_session", "Log an exercise session (workout). Exercise types: 
   catch (e: any) { return apiErr(e.message); }
 });
 
-reg("add_nutrition_log", "Log a meal by type and time. The API only supports mealType and interval; nutrient details and food names are not supported.", {
-  type: "object", properties: { meal_type: { type: "string" }, start_time: { type: "string" }, end_time: { type: "string" }, utc_offset: { type: "string" }, dry_run: { type: "boolean" } },
-  required: ["meal_type"],
-}, async (auth, a) => {
+reg("add_nutrition_log", "Log a meal by type and time. The API only supports mealType and interval; nutrient details and food names are not supported.", {"properties": {"dry_run": {"description": "If true, show the API request without executing it.","type": ["boolean","null"]},"end_time": {"description": "End timestamp in RFC3339 format (defaults to start_time + 30min)","type": ["string","null"]},"meal_type": {"description": "Meal type: BREAKFAST, LUNCH, DINNER, SNACK","type": "string"},"start_time": {"description": "Start timestamp in RFC3339 format (defaults to current time)","type": ["string","null"]},"utc_offset": {"description": "UTC offset string (e.g. \"0s\", \"3600s\"). Default \"0s\".","type": ["string","null"]}},"required": ["meal_type"],"type": "object"}, async (auth, a) => {
   const valid = ["BREAKFAST","LUNCH","DINNER","SNACK"];
   if (!valid.includes(a.meal_type?.toUpperCase())) return err("meal_type must be one of: BREAKFAST, LUNCH, DINNER, SNACK");
   const start = a.start_time || new Date().toISOString();
@@ -329,10 +322,9 @@ reg("add_nutrition_log", "Log a meal by type and time. The API only supports mea
   catch (e: any) { return apiErr(e.message); }
 });
 
-reg("patch_data_point", "Update an existing data point. Provide data type, data point ID, and the fields to update as a JSON object.", {
-  type: "object", properties: { data_type: { type: "string" }, data_point_id: { type: "string" }, body: { type: "object" } },
-  required: ["data_type", "data_point_id", "body"],
-}, async (auth, a) => {
+reg("patch_data_point", "Update an existing data point. Provide data type, data point ID, and the fields to update as a JSON object.", {"properties": {"body": {"description": "Fields to update as JSON (DataPoint structure)"},"data_point_id": {"description": "Data point ID","type": "string"},"data_type": {"description": "Data type ID (kebab-case)","type": "string"}},"required": ["data_type","data_point_id","body"],"type": "object"}, async (auth, a) => {
+  const bad = segErr(a.data_type, "data_type") || pointIdErr(a.data_point_id);
+  if (bad) return bad;
   const url = a.data_point_id.startsWith("users/")
     ? `https://health.googleapis.com/v4/${a.data_point_id}`
     : `${BASE}/dataTypes/${a.data_type}/dataPoints/${a.data_point_id}`;
@@ -341,27 +333,27 @@ reg("patch_data_point", "Update an existing data point. Provide data type, data 
 });
 
 // Delete
-reg("delete_data_point", "Delete a single data point by its data type and data point ID.", {
-  type: "object", properties: { data_type: { type: "string" }, data_point_id: { type: "string" } },
-  required: ["data_type", "data_point_id"],
-}, async (auth, a) => {
+reg("delete_data_point", "Delete a single data point by its data type and data point ID.", {"properties": {"data_point_id": {"description": "Data point ID (from listed data point name or ID)","type": "string"},"data_type": {"description": "Data type ID (kebab-case)","type": "string"}},"required": ["data_type","data_point_id"],"type": "object"}, async (auth, a) => {
+  const bad = segErr(a.data_type, "data_type") || pointIdErr(a.data_point_id);
+  if (bad) return bad;
   const name = a.data_point_id.startsWith("users/") ? a.data_point_id : `users/me/dataTypes/${a.data_type}/dataPoints/${a.data_point_id}`;
   try { const v = await auth.apiPost(`${BASE}/dataTypes/${a.data_type}/dataPoints:batchDelete`, { names: [name] }); auth.cache.clear(); return ok(v); }
   catch (e: any) { return apiErr(e.message); }
 });
 
-reg("batch_delete_data_points", "Delete multiple data points by their full resource names. Max 10000 per request. Supported types: sleep, exercise, weight, height, body-fat, hydration-log, nutrition-log.", {
-  type: "object", properties: { data_type: { type: "string" }, names: { type: "array", items: { type: "string" } } },
-  required: ["data_type", "names"],
-}, async (auth, a) => {
+reg("batch_delete_data_points", "Delete multiple data points by their full resource names. Max 10000 per request. Supported types: sleep, exercise, weight, height, body-fat, hydration-log, nutrition-log.", {"properties": {"data_type": {"description": "Data type ID (kebab-case), or '-' for cross-type delete","type": "string"},"names": {"description": "List of full resource names to delete (e.g. [\"users/me/dataTypes/weight/dataPoints/123456\"])","items": {"type": "string"},"type": "array"}},"required": ["data_type","names"],"type": "object"}, async (auth, a) => {
+  const bad = segErr(a.data_type, "data_type");
+  if (bad) return bad;
+  for (const n of a.names || []) {
+    if (!RESOURCE_NAME_RE.test(n)) return err(`names must have the form users/{user}/dataTypes/{type}/dataPoints/{id}: ${JSON.stringify(n)}`);
+  }
   try { const v = await auth.apiPost(`${BASE}/dataTypes/${a.data_type}/dataPoints:batchDelete`, { names: a.names }); auth.cache.clear(); return ok(v); }
   catch (e: any) { return apiErr(e.message); }
 });
 
-reg("delete_by_filter", "Delete all data points matching a filter. Use with caution - this is destructive.", {
-  type: "object", properties: { data_type: { type: "string" }, filter: { type: "string" }, max_count: { type: "number" } },
-  required: ["data_type", "filter"],
-}, async (auth, a) => {
+reg("delete_by_filter", "Delete all data points matching a filter. Use with caution - this is destructive.", {"properties": {"data_type": {"description": "Data type (kebab-case)","type": "string"},"filter": {"description": "AIP-160 filter expression","type": "string"},"max_count": {"description": "Maximum number of points to delete (default 100, max 10000)","type": ["integer","null"]}},"required": ["data_type","filter"],"type": "object"}, async (auth, a) => {
+  const bad = segErr(a.data_type, "data_type");
+  if (bad) return bad;
   const maxCount = Math.min(Math.max(a.max_count || 100, 1), 10000);
   const names: string[] = [];
   let pageToken: string | undefined;
@@ -387,10 +379,9 @@ reg("delete_by_filter", "Delete all data points matching a filter. Use with caut
 });
 
 // Export
-reg("export_exercise_tcx", "Export an exercise data point as TCX (Training Center XML). Requires both activity_and_fitness.readonly and location.readonly scopes. Add ?alt=media for raw TCX download.", {
-  type: "object", properties: { data_point_id: { type: "string" }, partial_data: { type: "boolean" } },
-  required: ["data_point_id"],
-}, async (auth, a) => {
+reg("export_exercise_tcx", "Export an exercise data point as TCX (Training Center XML). Requires both activity_and_fitness.readonly and location.readonly scopes. Add ?alt=media for raw TCX download.", {"properties": {"data_point_id": {"description": "Data point ID of the exercise (numeric)","type": "string"},"partial_data": {"description": "Include partial data when GPS unavailable (default false)","type": ["boolean","null"]}},"required": ["data_point_id"],"type": "object"}, async (auth, a) => {
+  const bad = pointIdErr(a.data_point_id);
+  if (bad) return bad;
   let url = `${BASE}/dataTypes/exercise/dataPoints/${a.data_point_id}:exportExerciseTcx?alt=media`;
   if (a.partial_data) url += "&partialData=true";
   try { return ok(await auth.apiGet(url)); } catch (e: any) { return apiErr(e.message); }
@@ -409,34 +400,27 @@ for (const [name, path, desc] of [
   });
 }
 
-reg("get_paired_device", "Get details of a specific paired device.", {
-  type: "object", properties: { device_id: { type: "string" } }, required: ["device_id"],
-}, async (auth, a) => {
+reg("get_paired_device", "Get details of a specific paired device.", {"properties": {"device_id": {"description": "Device ID","type": "string"}},"required": ["device_id"],"type": "object"}, async (auth, a) => {
+  const bad = segErr(a.device_id, "device_id");
+  if (bad) return bad;
   try { return ok(await auth.apiGet(`${BASE}/pairedDevices/${a.device_id}`)); } catch (e: any) { return apiErr(e.message); }
 });
 
-reg("update_profile", "Update the user's Google Health profile fields. Provide fields as a JSON object.", {
-  type: "object", properties: { body: { type: "object" } }, required: ["body"],
-}, async (auth, a) => {
+reg("update_profile", "Update the user's Google Health profile fields. Provide fields as a JSON object.", {"properties": {"body": {"description": "Profile fields to update as JSON"}},"required": ["body"],"type": "object"}, async (auth, a) => {
   try { return ok(await auth.apiPatch(`${BASE}/profile`, a.body)); } catch (e: any) { return apiErr(e.message); }
 });
 
-reg("update_settings", "Update the user's Google Health settings. Provide fields as a JSON object.", {
-  type: "object", properties: { body: { type: "object" } }, required: ["body"],
-}, async (auth, a) => {
+reg("update_settings", "Update the user's Google Health settings. Provide fields as a JSON object.", {"properties": {"body": {"description": "Settings fields to update as JSON"}},"required": ["body"],"type": "object"}, async (auth, a) => {
   try { return ok(await auth.apiPatch(`${BASE}/settings`, a.body)); } catch (e: any) { return apiErr(e.message); }
 });
 
 // Analytics
-reg("clear_cache", "Clear in-memory response cache to force fresh live API fetches on subsequent queries.", { type: "object", properties: {} }, async (auth) => {
+reg("clear_cache", "Clear in-memory response cache to force fresh live API fetches on subsequent queries.", {"properties": {},"type": "object"}, async (auth) => {
   auth.cache.clear();
   return ok({ success: true, message: "In-memory response cache cleared" });
 });
 
-reg("get_temperature_summary", "Get core body temperature and daily sleep temperature derivations for a period.", {
-  type: "object", properties: { start_date: { type: "string" }, end_date: { type: "string" } },
-  required: ["start_date", "end_date"],
-}, async (auth, a) => {
+reg("get_temperature_summary", "Get core body temperature and daily sleep temperature derivations for a period.", {"properties": {"end_date": {"description": "End date (YYYY-MM-DD)","type": "string"},"start_date": {"description": "Start date (YYYY-MM-DD)","type": "string"}},"required": ["start_date","end_date"],"type": "object"}, async (auth, a) => {
   try {
     const start = parseDate(a.start_date), endExcl = fmt(addDays(parseDate(a.end_date), 1));
     const [core, sleepTemp] = await Promise.all([
@@ -447,10 +431,9 @@ reg("get_temperature_summary", "Get core body temperature and daily sleep temper
   } catch (e: any) { return e.message.includes("Invalid date") ? err(e.message) : apiErr(e.message); }
 });
 
-reg("get_trends", "Get daily time series for a health metric over a date range. Returns per-day aggregated values. Only works with dailyRollUp-compatible types. Use list_data_types to check.", {
-  type: "object", properties: { data_type: { type: "string" }, start_date: { type: "string" }, end_date: { type: "string" } },
-  required: ["data_type", "start_date", "end_date"],
-}, async (auth, a) => {
+reg("get_trends", "Get daily time series for a health metric over a date range. Returns per-day aggregated values. Only works with dailyRollUp-compatible types. Use list_data_types to check.", {"properties": {"data_type": {"description": "Data type (e.g. steps, heart-rate, active-energy-burned, distance, floors)","type": "string"},"end_date": {"description": "End date (YYYY-MM-DD)","type": "string"},"start_date": {"description": "Start date (YYYY-MM-DD)","type": "string"}},"required": ["data_type","start_date","end_date"],"type": "object"}, async (auth, a) => {
+  const badType = segErr(a.data_type, "data_type");
+  if (badType) return badType;
   try {
     const start = parseDate(a.start_date), end = parseDate(a.end_date);
     if (start > end) return err("end_date must be on or after start_date");
@@ -465,10 +448,7 @@ reg("get_trends", "Get daily time series for a health metric over a date range. 
   } catch (e: any) { return e.message.includes("Invalid date") ? err(e.message) : apiErr(e.message); }
 });
 
-reg("compare_health_periods", "Compare health metrics (steps, active calories, etc.) between two date ranges (Period A vs Period B).", {
-  type: "object", properties: { period_a_start: { type: "string" }, period_a_end: { type: "string" }, period_b_start: { type: "string" }, period_b_end: { type: "string" } },
-  required: ["period_a_start", "period_a_end", "period_b_start", "period_b_end"],
-}, async (auth, a) => {
+reg("compare_health_periods", "Compare health metrics (steps, active calories, etc.) between two date ranges (Period A vs Period B).", {"properties": {"period_a_end": {"description": "End date for Period A (YYYY-MM-DD)","type": "string"},"period_a_start": {"description": "Start date for Period A (YYYY-MM-DD)","type": "string"},"period_b_end": {"description": "End date for Period B (YYYY-MM-DD)","type": "string"},"period_b_start": {"description": "Start date for Period B (YYYY-MM-DD)","type": "string"}},"required": ["period_a_start","period_a_end","period_b_start","period_b_end"],"type": "object"}, async (auth, a) => {
   try {
     const [sa, sb] = await Promise.all([
       periodSummary(auth, parseDate(a.period_a_start), parseDate(a.period_a_end)),
@@ -550,9 +530,7 @@ function getPath(obj: any, path: string): any {
   return path.split(".").reduce((o, k) => o?.[k], obj);
 }
 
-reg("get_hrv_recovery_trend", "Analyze HRV (Heart Rate Variability) and resting heart rate trends over past N days to evaluate physical recovery status.", {
-  type: "object", properties: { days: { type: "number" }, end_date: { type: "string" } },
-}, async (auth, a) => {
+reg("get_hrv_recovery_trend", "Analyze HRV (Heart Rate Variability) and resting heart rate trends over past N days to evaluate physical recovery status.", {"properties": {"days": {"description": "Number of past days to analyze (default 14, max 90)","type": ["integer","null"]},"end_date": {"description": "End date (YYYY-MM-DD, defaults to today)","type": ["string","null"]}},"type": "object"}, async (auth, a) => {
   const daysCount = Math.min(Math.max(a.days || 14, 1), 90);
   const end = a.end_date ? parseDate(a.end_date) : new Date();
   const start = addDays(end, -(daysCount - 1));
@@ -707,12 +685,10 @@ async function dailySummary(auth: AuthState, date: Date): Promise<ToolResult> {
   return ok(summary);
 }
 
-reg("summary", "Full health summary for any date: steps, heart rate (avg/min/max/resting), calories (active/total), distance, active minutes, active zone minutes, floors, sleep (stages + summary), exercises, HRV, SpO2, respiratory rate, sleep temperature, weight, VO2max, nutrition, hydration, sedentary periods, activity levels. `today` and `yesterday` are shortcuts for this tool. Per-metric fetch failures, if any, are listed in `_errors`.", {
-  type: "object", properties: { date: { type: "string", description: "YYYY-MM-DD (defaults to today)" } },
-}, async (auth, a) => {
+reg("summary", "Full health summary for any date: steps, heart rate (avg/min/max/resting), calories (active/total), distance, active minutes, active zone minutes, floors, sleep (stages + summary), exercises, HRV, SpO2, respiratory rate, sleep temperature, weight, VO2max, nutrition, hydration, sedentary periods, activity levels. `today` and `yesterday` are shortcuts for this tool. Per-metric fetch failures, if any, are listed in `_errors`.", {"properties": {"date": {"description": "Date in YYYY-MM-DD format. Defaults to today (server local time) if omitted.","type": ["string","null"]}},"type": "object"}, async (auth, a) => {
   const date = a.date ? parseDate(a.date) : new Date();
   return dailySummary(auth, date);
 });
 
-reg("today", "Get a full health summary for today: steps, heart rate (avg/min/max/resting), calories (active/total), distance, active minutes, active zone minutes, floors, sleep (stages + summary), exercises, HRV, SpO2, respiratory rate, sleep temperature, weight, sedentary periods.", { type: "object", properties: {} }, async (auth) => dailySummary(auth, new Date()));
-reg("yesterday", "Get a full health summary for yesterday: steps, heart rate (avg/min/max/resting), calories (active/total), distance, active minutes, active zone minutes, floors, sleep (stages + summary), exercises, HRV, SpO2, respiratory rate, sleep temperature, weight, sedentary periods.", { type: "object", properties: {} }, async (auth) => dailySummary(auth, addDays(new Date(), -1)));
+reg("today", "Get a full health summary for today: steps, heart rate (avg/min/max/resting), calories (active/total), distance, active minutes, active zone minutes, floors, sleep (stages + summary), exercises, HRV, SpO2, respiratory rate, sleep temperature, weight, sedentary periods.", {"properties": {},"type": "object"}, async (auth) => dailySummary(auth, new Date()));
+reg("yesterday", "Get a full health summary for yesterday: steps, heart rate (avg/min/max/resting), calories (active/total), distance, active minutes, active zone minutes, floors, sleep (stages + summary), exercises, HRV, SpO2, respiratory rate, sleep temperature, weight, sedentary periods.", {"properties": {},"type": "object"}, async (auth) => dailySummary(auth, addDays(new Date(), -1)));

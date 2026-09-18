@@ -8,6 +8,7 @@ use serde::Serialize;
 
 /// Which time field a data type is filtered on (AIP-160 filters).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TimeField {
     /// `{type}.interval.start_time` (RFC3339)
     IntervalStart,
@@ -169,7 +170,11 @@ pub const DATA_TYPES: &[DataTypeInfo] = &[
         page_cap: 10000,
         rollup_range_days: 90,
         description: "Minutes spent in fat-burn / cardio / peak heart-rate zones.",
-        key_fields: &["sumInFatBurnHeartZone", "sumInCardioHeartZone", "sumInPeakHeartZone"],
+        key_fields: &[
+            "sumInFatBurnHeartZone",
+            "sumInCardioHeartZone",
+            "sumInPeakHeartZone",
+        ],
         gotchas: &[],
     },
     DataTypeInfo {
@@ -266,7 +271,12 @@ pub const DATA_TYPES: &[DataTypeInfo] = &[
         page_cap: 10000,
         rollup_range_days: 14,
         description: "Instantaneous heart-rate samples (BPM).",
-        key_fields: &["beatsPerMinute", "beatsPerMinuteAvg", "beatsPerMinuteMax", "beatsPerMinuteMin"],
+        key_fields: &[
+            "beatsPerMinute",
+            "beatsPerMinuteAvg",
+            "beatsPerMinuteMax",
+            "beatsPerMinuteMin",
+        ],
         gotchas: &["14-day rollup range limit"],
     },
     DataTypeInfo {
@@ -394,7 +404,11 @@ pub const DATA_TYPES: &[DataTypeInfo] = &[
         page_cap: 10000,
         rollup_range_days: 90,
         description: "Per-sleep-stage respiratory rate summary (breaths/min).",
-        key_fields: &["breathsPerMinuteDeepSleep", "breathsPerMinuteLightSleep", "breathsPerMinuteRemSleep"],
+        key_fields: &[
+            "breathsPerMinuteDeepSleep",
+            "breathsPerMinuteLightSleep",
+            "breathsPerMinuteRemSleep",
+        ],
         gotchas: &["no rollUp support"],
     },
     DataTypeInfo {
@@ -556,7 +570,12 @@ pub const DATA_TYPES: &[DataTypeInfo] = &[
         page_cap: 25,
         rollup_range_days: 90,
         description: "Sleep sessions with stages and summary.",
-        key_fields: &["stages", "minutesAsleep", "minutesInSleepPeriod", "sleepType"],
+        key_fields: &[
+            "stages",
+            "minutesAsleep",
+            "minutesInSleepPeriod",
+            "sleepType",
+        ],
         gotchas: &[
             "page size capped at 25",
             "filter on sleep.interval.end_time (or civil_end_time), not start_time",
@@ -758,7 +777,11 @@ mod tests {
 
     #[test]
     fn registry_has_39_types() {
-        assert_eq!(DATA_TYPES.len(), 39, "registry must contain all 39 data types");
+        assert_eq!(
+            DATA_TYPES.len(),
+            39,
+            "registry must contain all 39 data types"
+        );
     }
 
     #[test]
@@ -770,21 +793,33 @@ mod tests {
         assert_eq!(ids.len(), before, "data type IDs must be unique");
         for t in DATA_TYPES {
             assert!(!t.id.contains('_'), "id {} must be kebab-case", t.id);
-            assert!(!t.filter_name.contains('-'), "filter_name {} must be snake_case", t.filter_name);
+            assert!(
+                !t.filter_name.contains('-'),
+                "filter_name {} must be snake_case",
+                t.filter_name
+            );
         }
     }
 
     #[test]
     fn filter_name_matches_id() {
         for t in DATA_TYPES {
-            assert_eq!(t.filter_name, t.id.replace('-', "_"), "filter_name mismatch for {}", t.id);
+            assert_eq!(
+                t.filter_name,
+                t.id.replace('-', "_"),
+                "filter_name mismatch for {}",
+                t.id
+            );
         }
     }
 
     #[test]
     fn find_type_works() {
         assert_eq!(find_type("heart-rate").unwrap().category, "cardiac");
-        assert_eq!(find_type("daily-resting-heart-rate").unwrap().time_field, TimeField::Daily);
+        assert_eq!(
+            find_type("daily-resting-heart-rate").unwrap().time_field,
+            TimeField::Daily
+        );
         assert!(find_type("does-not-exist").is_none());
     }
 
@@ -796,7 +831,12 @@ mod tests {
         assert_eq!(find_type("heart-rate").unwrap().rollup_range_days, 14);
         assert_eq!(find_type("active-minutes").unwrap().rollup_range_days, 14);
         assert_eq!(find_type("total-calories").unwrap().rollup_range_days, 14);
-        assert_eq!(find_type("calories-in-heart-rate-zone").unwrap().rollup_range_days, 14);
+        assert_eq!(
+            find_type("calories-in-heart-rate-zone")
+                .unwrap()
+                .rollup_range_days,
+            14
+        );
         assert_eq!(find_type("steps").unwrap().rollup_range_days, 90);
     }
 

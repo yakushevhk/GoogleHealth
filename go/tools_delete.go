@@ -17,6 +17,13 @@ func deleteDataPointHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.
 	dataType, _ := args["data_type"].(string)
 	dataPointID, _ := args["data_point_id"].(string)
 
+	if r := checkSegment(dataType, "data_type"); r != nil {
+		return r, nil
+	}
+	if r := checkPointID(dataPointID); r != nil {
+		return r, nil
+	}
+
 	var name string
 	if strings.HasPrefix(dataPointID, "users/") {
 		name = dataPointID
@@ -51,6 +58,15 @@ func batchDeleteDataPointsHandler(ctx context.Context, req mcp.CallToolRequest) 
 		}
 	}
 
+	if r := checkSegment(dataType, "data_type"); r != nil {
+		return r, nil
+	}
+	for _, n := range names {
+		if !isResourceName(n) {
+			return errResult(fmt.Sprintf("names must have the form users/{user}/dataTypes/{type}/dataPoints/{id}: %q", n))
+		}
+	}
+
 	apiURL := fmt.Sprintf("%s/dataTypes/%s/dataPoints:batchDelete", base, dataType)
 	body := map[string]interface{}{"names": names}
 	resp, err := auth.APIPost(apiURL, body)
@@ -80,6 +96,10 @@ func deleteByFilterHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.C
 	}
 	if maxCount < 1 {
 		maxCount = 1
+	}
+
+	if r := checkSegment(dataType, "data_type"); r != nil {
+		return r, nil
 	}
 
 	// Phase 1: list data points matching the filter.

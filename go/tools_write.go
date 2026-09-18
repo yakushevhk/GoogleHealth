@@ -20,6 +20,10 @@ func createDataPointHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.
 	bodyArg := args["body"]
 	dryRun, _ := args["dry_run"].(bool)
 
+	if r := checkSegment(dataType, "data_type"); r != nil {
+		return r, nil
+	}
+
 	apiURL := fmt.Sprintf("%s/dataTypes/%s/dataPoints", base, dataType)
 	if dryRun {
 		return okResult(map[string]interface{}{
@@ -301,6 +305,13 @@ func patchDataPointHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.C
 	dataType, _ := args["data_type"].(string)
 	dataPointID, _ := args["data_point_id"].(string)
 	bodyArg := args["body"]
+
+	if r := checkSegment(dataType, "data_type"); r != nil {
+		return r, nil
+	}
+	if r := checkPointID(dataPointID); r != nil {
+		return r, nil
+	}
 
 	var apiURL string
 	if strings.HasPrefix(dataPointID, "users/") {

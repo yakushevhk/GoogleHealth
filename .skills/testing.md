@@ -16,7 +16,7 @@ cd astrojs && npm test
 cd ts && bun install && GOOGLE_CLIENT_ID=test GOOGLE_CLIENT_SECRET=test GOOGLE_REFRESH_TOKEN=test bun -e "import('./src/index.ts').then(() => console.log('OK')).catch(() => process.exit(1))"
 
 # Python — no tests yet (import check only)
-cd py && pip install -e . && GOOGLE_CLIENT_ID=test GOOGLE_CLIENT_SECRET=test GOOGLE_REFRESH_TOKEN=test python3 -c "from src.server import *; print('OK')"
+cd py && pip install -e . && GOOGLE_CLIENT_ID=test GOOGLE_CLIENT_SECRET=test GOOGLE_REFRESH_TOKEN=test python3 -c "from google_health_mcp.server import *; print('OK')"
 ```
 
 ## Build Commands

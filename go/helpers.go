@@ -21,7 +21,12 @@ func okResult(v interface{}) (*mcp.CallToolResult, error) {
 	if err != nil {
 		data = []byte("{}")
 	}
-	return mcp.NewToolResultText(string(data)), nil
+	result := mcp.NewToolResultText(string(data))
+	// structuredContent must be an object; arrays/scalars are text-only.
+	if m, ok := v.(map[string]interface{}); ok {
+		result.StructuredContent = m
+	}
+	return result, nil
 }
 
 func errResult(msg string) (*mcp.CallToolResult, error) {
@@ -66,6 +71,68 @@ func apiErr(e string) (*mcp.CallToolResult, error) {
 		})
 	}
 	return errResult(e)
+}
+
+// ─── Path safety ────────────────────────────────────────────────────────────
+// dataType/dataPointId/deviceId are interpolated into the Google API URL path.
+// Without validation, %2F decodes to / and dot-segments get normalized,
+// escaping into adjacent paths (dataPoints/../profile).
+
+// isSegment reports whether s is a safe URL path segment: letters, digits, '-', '_'.
+func isSegment(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+// isResourceName validates users/{user}/dataTypes/{type}/dataPoints/{id}.
+// The API returns numeric user IDs as well as the "me" alias.
+func isResourceName(s string) bool {
+	parts := strings.Split(s, "/")
+	if len(parts) != 6 || parts[0] != "users" || parts[2] != "dataTypes" || parts[4] != "dataPoints" {
+		return false
+	}
+	u := parts[1]
+	if u != "me" {
+		if u == "" {
+			return false
+		}
+		for i := 0; i < len(u); i++ {
+			if u[i] < '0' || u[i] > '9' {
+				return false
+			}
+		}
+	}
+	return isSegment(parts[3]) && isSegment(parts[5])
+}
+
+// checkSegment returns an error result if s is not a safe URL path segment, else nil.
+func checkSegment(s, what string) *mcp.CallToolResult {
+	if isSegment(s) {
+		return nil
+	}
+	r, _ := errResult(fmt.Sprintf("%s must consist of letters, digits, '-', or '_': %q", what, s))
+	return r
+}
+
+// checkPointID accepts a bare segment or a full resource name.
+func checkPointID(id string) *mcp.CallToolResult {
+	if strings.HasPrefix(id, "users/") {
+		if isResourceName(id) {
+			return nil
+		}
+	} else if isSegment(id) {
+		return nil
+	}
+	r, _ := errResult(fmt.Sprintf("data_point_id must be a path segment or users/{user}/dataTypes/{type}/dataPoints/{id}: %q", id))
+	return r
 }
 
 // addPaginationHint attaches a _hint to responses that carry a nextPageToken.

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Cross-implementation conformance
+- `spec/` — canonical snapshots of all 35 tools, 3 resources + 1 resource template, 3 prompts, and 39 data types, generated from the Rust reference
+- `scripts/check-parity.py` — launches every implementation over stdio and diffs tools/resources/prompts/`list_data_types` output against `spec/` (C/Zig checked as subsets); `make parity` / `make update-spec`
+- TS: `bun:test` suite covering helpers, path validation, and result shaping (`ts/src/tools.test.ts`)
+- Python: `unittest` suite (`py/tests/test_tools.py`)
+
 #### Web Dashboard (Astro.js)
 - Manual refresh button in the top bar (immediate re-fetch of today's data, e.g. after a write or connection recovery)
 - Screen-reader support for canvas charts: `role="img"` + `aria-label` plus a visually-hidden textual summary (HR, HRV, SpO₂, sleep, body, zones, trends) updated from real loaded data
@@ -36,6 +42,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - `astro check` (typecheck) failed with 53 TS errors due to unescaped apostrophes in test descriptions (`tests/ui.test.ts`, `tests/store.test.ts`) — quotes escaped, typecheck now clean
 - CI: the Dashboard (Astro.js) job now runs `npm run check` in addition to tests and build, so type errors are caught in CI
+- Path-injection hardening in all MCP implementations: `data_type`/`data_point_id`/`device_id`/`names` are validated against segment (`[A-Za-z0-9_-]+`) or full `users/{user}/dataTypes/{type}/dataPoints/{id}` resource-name regexes before URL interpolation, mirroring the dashboard's `assertSegment` guard
+- Python now loads `.env` via python-dotenv (with a stdlib fallback parser in `oauth_health.py`), matching Rust/Go/Bun behavior
+- Python tool errors now set `isError: true` and successful object results carry `structuredContent` — protocol parity with the Rust reference; Go `ok()`/`okResult` and TS `ok()` now emit `structuredContent` too
+- TypeScript `--http` mode uses the official `StreamableHTTPServerTransport` (stateless, one transport+server per request) instead of a hand-rolled JSON-RPC handler — SSE, protocol version 2025-11-25, same auth model
+- Go: `filter_name`/`page_size`-class params emitted as `integer` where the spec says integer; `body` params match the reference's free-form JSON schema; `names` declares `items: {type: string}`
+- Zig: `filter_name` now snake_case (`active_energy_burned`, was kebab-case); build links libc explicitly for Zig 0.16
+- `TimeField` serializes as snake_case in the Rust reference (`interval_start`, not `IntervalStart`), matching the other implementations
+- Python `delete_by_filter` clears the response cache when some deletions fail, like the other implementations
 
 ### Security
 - `MCP_API_KEY` is now **required** in HTTP mode for all implementations — the `change-me` fallback is removed and servers exit(1) if the key is missing (Rust, Go, TypeScript, Python)
@@ -45,9 +59,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Python implementation requires MCP SDK 2.x (`mcp>=2.0.0`); declared `mcp-types`, `starlette`, `uvicorn` dependencies explicitly
+- **Python package renamed `src` → `google_health_mcp`** — entry point is now `google_health_mcp.server:main`; `pip install -e py/` no longer installs a top-level `src` module; `mcp-types` dependency dropped in favor of `mcp.types`
 - Removed unused `zod` dependency from the TypeScript implementation
-- Root `Dockerfile` builder upgraded from `rust:1.75-slim` to `rust:slim` (rust-mcp-sdk MSRV is 1.80); runtime image gains `curl` so the compose healthcheck works
+- Root `Dockerfile` builder pinned to `rust:1.97-slim-bookworm`; runtime image gains `curl` so the compose healthcheck works, and now runs as a non-root `gh` user
+- Dashboard middleware: hashed `/_astro/*` build assets get `Cache-Control: public, max-age=31536000, immutable` instead of `no-store`
 - CI/release Go toolchain pin updated 1.23 → 1.25 to match `go.mod`
+- CI: added clippy (`-D warnings`) + `cargo fmt --check`, `gofmt`/`go vet`, `ruff`, a cross-language `parity` job, C/Zig builds, a Docker build job, and security scans (cargo audit, govulncheck, pip-audit, npm audit — non-blocking while existing advisories are triaged)
+- Release: multi-arch Rust binaries (linux amd64/arm64, macOS amd64/arm64, windows amd64) + Go binaries for 5 targets, SHA256SUMS, and a multi-arch GHCR image with SBOM/provenance attestations
 - Docs: corrected stale claims — dashboard is read+write (write/patch/delete API + Quick Entry UI) with 4 pages, Zig PoC lists 10 tools but only 3 are implemented, Node ≥ 22.12 for Astro 7, Rust 1.80+, Go 1.25+
 
 ### Fixed

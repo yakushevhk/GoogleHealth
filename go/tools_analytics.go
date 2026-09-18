@@ -724,6 +724,10 @@ func getTrendsHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallTo
 	startDate, _ := args["start_date"].(string)
 	endDate, _ := args["end_date"].(string)
 
+	if r := checkSegment(dataType, "data_type"); r != nil {
+		return r, nil
+	}
+
 	start, err := parseCivilDate(startDate)
 	if err != nil {
 		return errResult(err.Error())

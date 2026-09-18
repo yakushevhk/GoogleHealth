@@ -32,8 +32,17 @@ const DataType = struct {
     description: []const u8,
 };
 
-fn mkType(id: []const u8, cat: []const u8, tf: []const u8, listable: bool, rollup: bool, dr: bool, writable: bool, cap: u32, range_days: u32, desc: []const u8) DataType {
-    return .{ .id = id, .filter_name = id, .category = cat, .listable = listable, .rollup = rollup, .daily_rollup = dr, .writable = writable, .time_field = tf, .page_cap = cap, .rollup_range_days = range_days, .description = desc };
+fn filterName(comptime id: []const u8) []const u8 {
+    comptime {
+        var buf: [id.len]u8 = undefined;
+        for (id, 0..) |c, i| buf[i] = if (c == '-') '_' else c;
+        const out = buf;
+        return &out;
+    }
+}
+
+fn mkType(comptime id: []const u8, cat: []const u8, tf: []const u8, listable: bool, rollup: bool, dr: bool, writable: bool, cap: u32, range_days: u32, desc: []const u8) DataType {
+    return .{ .id = id, .filter_name = filterName(id), .category = cat, .listable = listable, .rollup = rollup, .daily_rollup = dr, .writable = writable, .time_field = tf, .page_cap = cap, .rollup_range_days = range_days, .description = desc };
 }
 
 const DATA_TYPES = [_]DataType{

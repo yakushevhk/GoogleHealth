@@ -62,7 +62,12 @@ export const onRequest = defineMiddleware(async (context, next) => {
     headers.set('x-request-duration-ms', String(meta.elapsedMs()));
   }
   // Keep pages out of heuristics/indexing (already noindex in markup).
-  headers.set('Cache-Control', 'no-store');
+  // Hashed build assets (/_astro/*) are immutable and safe to cache forever.
+  if (context.url.pathname.startsWith('/_astro/')) {
+    headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+  } else {
+    headers.set('Cache-Control', 'no-store');
+  }
 
   if (context.url.pathname.startsWith('/api/')) {
     const path = context.url.pathname + safeSearch(context.url.search);

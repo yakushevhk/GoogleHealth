@@ -96,6 +96,22 @@ func main() {
 
 // ─── Tool registration ───────────────────────────────────────────────────────
 
+// withAny registers a free-form JSON property (no type constraint), matching the
+// Rust reference where serde_json::Value params emit only a description.
+func withAny(name string, opts ...mcp.PropertyOption) mcp.ToolOption {
+	return func(t *mcp.Tool) {
+		schema := map[string]any{}
+		for _, opt := range opts {
+			opt(schema)
+		}
+		if required, ok := schema["required"].(bool); ok && required {
+			delete(schema, "required")
+			t.InputSchema.Required = append(t.InputSchema.Required, name)
+		}
+		t.InputSchema.Properties[name] = schema
+	}
+}
+
 func registerTools(s *server.MCPServer, withAuth func(func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)) func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)) {
 
 	// Discovery / registry
@@ -119,7 +135,7 @@ func registerTools(s *server.MCPServer, withAuth func(func(ctx context.Context, 
 		mcp.WithString("filter", mcp.Description("Filter expression (AIP-160 syntax). Leave empty for types that don't support filters (food, food-measurement-unit). If provided, overrides any auto-built filter from start_time/end_time.")),
 		mcp.WithString("start_time", mcp.Description("Optional start time (RFC3339 or YYYY-MM-DD). If provided with end_time, builds the filter automatically.")),
 		mcp.WithString("end_time", mcp.Description("Optional end time (RFC3339 or YYYY-MM-DD). Used with start_time.")),
-		mcp.WithNumber("page_size", mcp.Description("Page size (default 1440, max 10000; exercise/sleep max 25)")),
+		mcp.WithInteger("page_size", mcp.Description("Page size (default 1440, max 10000; exercise/sleep max 25)")),
 		mcp.WithString("page_token", mcp.Description("Page token for pagination")),
 		mcp.WithBoolean("raw", mcp.Description("If true, return the full raw API response. Default false returns simplified output (strips dataSource/createTime/updateTime and empty objects from each point).")),
 	), withAuth(listDataPointsHandler))
@@ -137,7 +153,7 @@ func registerTools(s *server.MCPServer, withAuth func(func(ctx context.Context, 
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithString("data_type", mcp.Required(), mcp.Description("Data type ID (kebab-case)")),
 		mcp.WithString("filter", mcp.Description("Filter expression (same syntax as list)")),
-		mcp.WithNumber("page_size", mcp.Description("Page size")),
+		mcp.WithInteger("page_size", mcp.Description("Page size")),
 		mcp.WithString("page_token", mcp.Description("Page token")),
 		mcp.WithString("data_source_family", mcp.Description("Data source family: users/me/dataSourceFamilies/all-sources (default), users/me/dataSourceFamilies/google-wearables, users/me/dataSourceFamilies/google-sources")),
 		mcp.WithBoolean("raw", mcp.Description("If true, return the full raw API response. Default false returns simplified output.")),
@@ -149,7 +165,7 @@ func registerTools(s *server.MCPServer, withAuth func(func(ctx context.Context, 
 		mcp.WithString("data_type", mcp.Required(), mcp.Description("Data type ID (kebab-case), e.g. steps, heart-rate, sleep, weight")),
 		mcp.WithString("since_time", mcp.Required(), mcp.Description("Start timestamp for incremental sync (RFC3339, e.g. 2026-07-26T00:00:00Z or YYYY-MM-DD for daily types)")),
 		mcp.WithString("until_time", mcp.Description("Optional end timestamp for sync window (RFC3339 or YYYY-MM-DD)")),
-		mcp.WithNumber("page_size", mcp.Description("Page size for pagination")),
+		mcp.WithInteger("page_size", mcp.Description("Page size for pagination")),
 		mcp.WithString("page_token", mcp.Description("Page token for pagination")),
 		mcp.WithString("data_source_family", mcp.Description("Data source family filter (optional)")),
 		mcp.WithBoolean("raw", mcp.Description("If true, return the full raw API response. Default false returns simplified output.")),
@@ -162,7 +178,7 @@ func registerTools(s *server.MCPServer, withAuth func(func(ctx context.Context, 
 		mcp.WithString("start_time", mcp.Required(), mcp.Description("Range start time (RFC3339, e.g. 2026-07-15T00:00:00Z)")),
 		mcp.WithString("end_time", mcp.Required(), mcp.Description("Range end time (RFC3339, e.g. 2026-07-22T00:00:00Z)")),
 		mcp.WithString("window_size", mcp.Required(), mcp.Description("Window size as duration string (e.g. 3600s for hourly, 86400s for daily)")),
-		mcp.WithNumber("page_size", mcp.Description("Page size (default 1440, max 10000)")),
+		mcp.WithInteger("page_size", mcp.Description("Page size (default 1440, max 10000)")),
 		mcp.WithString("page_token", mcp.Description("Page token")),
 		mcp.WithString("data_source_family", mcp.Description("Data source family (optional)")),
 		mcp.WithBoolean("raw", mcp.Description("If true, return the full raw API response. Default false returns simplified output.")),
@@ -174,8 +190,8 @@ func registerTools(s *server.MCPServer, withAuth func(func(ctx context.Context, 
 		mcp.WithString("data_type", mcp.Required(), mcp.Description("Data type ID (kebab-case): same as rollup")),
 		mcp.WithString("start_date", mcp.Required(), mcp.Description("Start date (YYYY-MM-DD)")),
 		mcp.WithString("end_date", mcp.Required(), mcp.Description("End date (YYYY-MM-DD, exclusive)")),
-		mcp.WithNumber("window_size_days", mcp.Description("Window size in days (default 1)")),
-		mcp.WithNumber("page_size", mcp.Description("Page size")),
+		mcp.WithInteger("window_size_days", mcp.Description("Window size in days (default 1)")),
+		mcp.WithInteger("page_size", mcp.Description("Page size")),
 		mcp.WithString("page_token", mcp.Description("Page token")),
 		mcp.WithString("data_source_family", mcp.Description("Data source family (optional)")),
 		mcp.WithBoolean("raw", mcp.Description("If true, return the full raw API response. Default false returns simplified output.")),
@@ -187,7 +203,7 @@ func registerTools(s *server.MCPServer, withAuth func(func(ctx context.Context, 
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithString("data_type", mcp.Required(), mcp.Description("Data type ID (kebab-case): sleep, exercise, weight, height, body-fat, hydration-log, nutrition-log")),
-		mcp.WithObject("body", mcp.Required(), mcp.Description("The DataPoint body as JSON")),
+		withAny("body", mcp.Required(), mcp.Description("The DataPoint body as JSON")),
 		mcp.WithBoolean("dry_run", mcp.Description("If true, show the API request that would be made without executing it.")),
 	), withAuth(createDataPointHandler))
 
@@ -244,7 +260,7 @@ func registerTools(s *server.MCPServer, withAuth func(func(ctx context.Context, 
 		mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithString("data_type", mcp.Required(), mcp.Description("Data type ID (kebab-case)")),
 		mcp.WithString("data_point_id", mcp.Required(), mcp.Description("Data point ID")),
-		mcp.WithObject("body", mcp.Required(), mcp.Description("Fields to update as JSON (DataPoint structure)")),
+		withAny("body", mcp.Required(), mcp.Description("Fields to update as JSON (DataPoint structure)")),
 	), withAuth(patchDataPointHandler))
 
 	s.AddTool(mcp.NewTool("delete_data_point",
@@ -260,7 +276,7 @@ func registerTools(s *server.MCPServer, withAuth func(func(ctx context.Context, 
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithString("data_type", mcp.Required(), mcp.Description("Data type ID (kebab-case), or '-' for cross-type delete")),
-		mcp.WithArray("names", mcp.Required(), mcp.Description("List of full resource names to delete (e.g. [\"users/me/dataTypes/weight/dataPoints/123456\"])")),
+		mcp.WithArray("names", mcp.Required(), mcp.Description("List of full resource names to delete (e.g. [\"users/me/dataTypes/weight/dataPoints/123456\"])"), mcp.WithStringItems()),
 	), withAuth(batchDeleteDataPointsHandler))
 
 	s.AddTool(mcp.NewTool("delete_by_filter",
@@ -269,7 +285,7 @@ func registerTools(s *server.MCPServer, withAuth func(func(ctx context.Context, 
 		mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithString("data_type", mcp.Required(), mcp.Description("Data type (kebab-case)")),
 		mcp.WithString("filter", mcp.Required(), mcp.Description("AIP-160 filter expression")),
-		mcp.WithNumber("max_count", mcp.Description("Maximum number of points to delete (default 100, max 10000)")),
+		mcp.WithInteger("max_count", mcp.Description("Maximum number of points to delete (default 100, max 10000)")),
 	), withAuth(deleteByFilterHandler))
 
 	// Export
@@ -293,7 +309,7 @@ func registerTools(s *server.MCPServer, withAuth func(func(ctx context.Context, 
 	s.AddTool(mcp.NewTool("get_hrv_recovery_trend",
 		mcp.WithDescription("Analyze HRV (Heart Rate Variability) and resting heart rate trends over past N days to evaluate physical recovery status."),
 		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithNumber("days", mcp.Description("Number of past days to analyze (default 14, max 90)")),
+		mcp.WithInteger("days", mcp.Description("Number of past days to analyze (default 14, max 90)")),
 		mcp.WithString("end_date", mcp.Description("End date (YYYY-MM-DD, defaults to today)")),
 	), withAuth(getHrvRecoveryTrendHandler))
 
@@ -342,7 +358,7 @@ func registerTools(s *server.MCPServer, withAuth func(func(ctx context.Context, 
 	s.AddTool(mcp.NewTool("update_profile",
 		mcp.WithDescription("Update the user's Google Health profile fields. Provide fields as a JSON object."),
 		mcp.WithReadOnlyHintAnnotation(false),
-		mcp.WithObject("body", mcp.Required(), mcp.Description("Profile fields to update as JSON")),
+		withAny("body", mcp.Required(), mcp.Description("Profile fields to update as JSON")),
 	), withAuth(updateProfileHandler))
 
 	s.AddTool(mcp.NewTool("get_settings",
@@ -353,7 +369,7 @@ func registerTools(s *server.MCPServer, withAuth func(func(ctx context.Context, 
 	s.AddTool(mcp.NewTool("update_settings",
 		mcp.WithDescription("Update the user's Google Health settings. Provide fields as a JSON object."),
 		mcp.WithReadOnlyHintAnnotation(false),
-		mcp.WithObject("body", mcp.Required(), mcp.Description("Settings fields to update as JSON")),
+		withAny("body", mcp.Required(), mcp.Description("Settings fields to update as JSON")),
 	), withAuth(updateSettingsHandler))
 
 	s.AddTool(mcp.NewTool("get_identity",

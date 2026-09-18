@@ -1,13 +1,12 @@
 """All 35 MCP tool handlers — full parity with Rust tools.rs."""
 
 import asyncio
-import json
-import math
-from datetime import date, datetime, timedelta, timezone
+import re
+from datetime import UTC, date, datetime, timedelta
 from urllib.parse import quote
 
-from .auth import AuthState, BASE
-from .types import DATA_TYPES, find_type, categories
+from .auth import BASE, AuthState
+from .types import DATA_TYPES, categories, find_type
 
 Q = chr(34)  # double quote for filter strings
 
@@ -55,6 +54,28 @@ def _simplify(v: dict):
 def _pagination_hint(v: dict):
     if "nextPageToken" in v:
         v["_hint"] = "More data available. Pass nextPageToken to fetch the next page."
+
+
+# ─── Path safety ──────────────────────────────────────────────────────────────
+# dataType/dataPointId/deviceId are interpolated into the Google API URL path.
+# Without validation, %2F decodes to / and dot-segments get normalized,
+# escaping into adjacent paths (dataPoints/../profile).
+
+_SEGMENT_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_RESOURCE_NAME_RE = re.compile(r"^users/(me|\d+)/dataTypes/[A-Za-z0-9_-]+/dataPoints/[A-Za-z0-9_-]+$")
+
+
+def _check_segment(s: str, what: str) -> dict | None:
+    if s and _SEGMENT_RE.match(s):
+        return None
+    return {"error": f"{what} must consist of letters, digits, '-', or '_': {s!r}"}
+
+
+def _check_point_id(pid: str) -> dict | None:
+    ok = bool(_RESOURCE_NAME_RE.match(pid)) if pid and pid.startswith("users/") else bool(pid and _SEGMENT_RE.match(pid))
+    if ok:
+        return None
+    return {"error": f"data_point_id must be a path segment or users/{{user}}/dataTypes/{{type}}/dataPoints/{{id}}: {pid!r}"}
 
 
 def _build_filter(data_type: str, since: str, until: str | None = None) -> str:
@@ -151,6 +172,8 @@ async def describe_data_type(auth: AuthState, args: dict) -> dict:
 
 async def list_data_points(auth: AuthState, args: dict) -> dict:
     dt = args["data_type"]
+    if bad := _check_segment(dt, "data_type"):
+        return bad
     url = f"{BASE}/dataTypes/{dt}/dataPoints"
     params = []
     f = args.get("filter") or ""
@@ -173,6 +196,10 @@ async def list_data_points(auth: AuthState, args: dict) -> dict:
 
 async def get_data_point(auth: AuthState, args: dict) -> dict:
     dp_id = args["data_point_id"]
+    if bad := _check_segment(args["data_type"], "data_type"):
+        return bad
+    if bad := _check_point_id(dp_id):
+        return bad
     url = f"https://health.googleapis.com/v4/{dp_id}" if dp_id.startswith("users/") else f"{BASE}/dataTypes/{args['data_type']}/dataPoints/{dp_id}"
     v = await auth.api_get(url)
     if not args.get("raw"):
@@ -181,6 +208,8 @@ async def get_data_point(auth: AuthState, args: dict) -> dict:
 
 
 async def reconcile_data_points(auth: AuthState, args: dict) -> dict:
+    if bad := _check_segment(args["data_type"], "data_type"):
+        return bad
     url = f"{BASE}/dataTypes/{args['data_type']}/dataPoints:reconcile"
     params = []
     if args.get("filter"):
@@ -206,6 +235,8 @@ async def sync_data_points(auth: AuthState, args: dict) -> dict:
 
 
 async def rollup_data_points(auth: AuthState, args: dict) -> dict:
+    if bad := _check_segment(args["data_type"], "data_type"):
+        return bad
     url = f"{BASE}/dataTypes/{args['data_type']}/dataPoints:rollUp"
     body = {"range": {"startTime": args["start_time"], "endTime": args["end_time"]}, "windowSize": args["window_size"]}
     if args.get("page_size"):
@@ -222,6 +253,8 @@ async def rollup_data_points(auth: AuthState, args: dict) -> dict:
 
 
 async def daily_rollup_data_points(auth: AuthState, args: dict) -> dict:
+    if bad := _check_segment(args["data_type"], "data_type"):
+        return bad
     start = _parse_date(args["start_date"])
     end = _parse_date(args["end_date"])
     url = f"{BASE}/dataTypes/{args['data_type']}/dataPoints:dailyRollUp"
@@ -242,6 +275,8 @@ async def daily_rollup_data_points(auth: AuthState, args: dict) -> dict:
 
 
 async def create_data_point(auth: AuthState, args: dict) -> dict:
+    if bad := _check_segment(args["data_type"], "data_type"):
+        return bad
     url = f"{BASE}/dataTypes/{args['data_type']}/dataPoints"
     if args.get("dry_run"):
         return {"dry_run": True, "method": "POST", "url": url, "body": args["body"]}
@@ -254,14 +289,14 @@ async def add_weight_sample(auth: AuthState, args: dict) -> dict:
     kg = args["weight_kg"]
     if kg <= 0 or kg > 500:
         return {"error": "weight_kg must be between 0 and 500 kg"}
-    ts = args.get("timestamp") or datetime.now(timezone.utc).isoformat()
+    ts = args.get("timestamp") or datetime.now(UTC).isoformat()
     off = args.get("utc_offset") or "0s"
     body = {"weight": {"sampleTime": {"physicalTime": ts, "utcOffset": off}, "weightGrams": round(kg * 1000)}}
     return await create_data_point(auth, {"data_type": "weight", "body": body, "dry_run": args.get("dry_run")})
 
 
 async def add_hydration_log(auth: AuthState, args: dict) -> dict:
-    start = args.get("start_time") or datetime.now(timezone.utc).isoformat()
+    start = args.get("start_time") or datetime.now(UTC).isoformat()
     end = args.get("end_time") or start
     if start == end:
         end = (datetime.fromisoformat(start) + timedelta(seconds=60)).isoformat()
@@ -295,7 +330,7 @@ async def add_nutrition_log(auth: AuthState, args: dict) -> dict:
     meal = args["meal_type"].upper()
     if meal not in valid:
         return {"error": "meal_type must be one of: BREAKFAST, LUNCH, DINNER, SNACK"}
-    start = args.get("start_time") or datetime.now(timezone.utc).isoformat()
+    start = args.get("start_time") or datetime.now(UTC).isoformat()
     end = args.get("end_time") or start
     if start == end:
         end = (datetime.fromisoformat(start) + timedelta(minutes=30)).isoformat()
@@ -306,6 +341,10 @@ async def add_nutrition_log(auth: AuthState, args: dict) -> dict:
 
 async def patch_data_point(auth: AuthState, args: dict) -> dict:
     dp_id = args["data_point_id"]
+    if bad := _check_segment(args["data_type"], "data_type"):
+        return bad
+    if bad := _check_point_id(dp_id):
+        return bad
     url = f"https://health.googleapis.com/v4/{dp_id}" if dp_id.startswith("users/") else f"{BASE}/dataTypes/{args['data_type']}/dataPoints/{dp_id}"
     v = await auth.api_patch(url, args["body"])
     auth.cache.clear()
@@ -319,6 +358,11 @@ async def delete_data_point(auth: AuthState, args: dict) -> dict:
 
 
 async def batch_delete_data_points(auth: AuthState, args: dict) -> dict:
+    if bad := _check_segment(args["data_type"], "data_type"):
+        return bad
+    for n in args["names"]:
+        if not _RESOURCE_NAME_RE.match(n):
+            return {"error": f"names must have the form users/{{user}}/dataTypes/{{type}}/dataPoints/{{id}}: {n!r}"}
     url = f"{BASE}/dataTypes/{args['data_type']}/dataPoints:batchDelete"
     v = await auth.api_post(url, {"names": args["names"]})
     auth.cache.clear()
@@ -327,6 +371,8 @@ async def batch_delete_data_points(auth: AuthState, args: dict) -> dict:
 
 async def delete_by_filter(auth: AuthState, args: dict) -> dict:
     dt = args["data_type"]
+    if bad := _check_segment(dt, "data_type"):
+        return bad
     filt = args["filter"]
     max_count = min(max(int(args.get("max_count") or 100), 1), 10000)
     names: list[str] = []
@@ -356,12 +402,15 @@ async def delete_by_filter(auth: AuthState, args: dict) -> dict:
             await auth.api_post(f"{BASE}/dataTypes/{dt}/dataPoints:batchDelete", {"names": chunk})
             deleted += len(chunk)
         except Exception as e:
+            auth.cache.clear()  # successful chunks already deleted data
             return {"deleted_count": deleted, "error": f"Batch delete failed after {deleted}: {e}"}
     auth.cache.clear()
     return {"deleted_count": deleted, "data_type": dt, "filter": filt}
 
 
 async def export_exercise_tcx(auth: AuthState, args: dict) -> dict:
+    if bad := _check_point_id(args["data_point_id"]):
+        return bad
     params = "alt=media"
     if args.get("partial_data"):
         params += "&partialData=true"
@@ -398,6 +447,8 @@ async def list_paired_devices(auth: AuthState, args: dict) -> dict:
 
 
 async def get_paired_device(auth: AuthState, args: dict) -> dict:
+    if bad := _check_segment(args["device_id"], "device_id"):
+        return bad
     return await auth.api_get(f"{BASE}/pairedDevices/{args['device_id']}")
 
 
@@ -575,7 +626,8 @@ async def get_hrv_recovery_trend(auth: AuthState, args: dict) -> dict:
 
 
 async def get_temperature_summary(auth: AuthState, args: dict) -> dict:
-    start, end = _parse_date(args["start_date"]), _parse_date(args["end_date"])
+    _parse_date(args["start_date"])  # validate format
+    end = _parse_date(args["end_date"])
     end_excl = (end + timedelta(days=1)).isoformat()
     sd = args["start_date"]
     core_f = f'core_body_temperature.sample_time.physical_time >= "{sd}T00:00:00Z" AND core_body_temperature.sample_time.physical_time < "{end_excl}T00:00:00Z"'
@@ -588,6 +640,8 @@ async def get_temperature_summary(auth: AuthState, args: dict) -> dict:
 
 
 async def get_trends(auth: AuthState, args: dict) -> dict:
+    if bad := _check_segment(args["data_type"], "data_type"):
+        return bad
     start, end = _parse_date(args["start_date"]), _parse_date(args["end_date"])
     if start > end:
         return {"error": "end_date must be on or after start_date"}

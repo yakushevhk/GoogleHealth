@@ -14,6 +14,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
       - run: cargo build --release
 
@@ -25,6 +29,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: '1.25'
+      - run: cd go && test -z "$(gofmt -l .)" && go vet ./... && go build ./...
       - run: cd go && go test ./... -v
 
   typescript:
@@ -33,7 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
-      - run: cd ts && bun install --frozen-lockfile && GOOGLE_CLIENT_ID=test GOOGLE_CLIENT_SECRET=test GOOGLE_REFRESH_TOKEN=test bun -e "import('./src/index.ts').then(() => console.log('OK')).catch(() => process.exit(1))"
+      - run: cd ts && bun install --frozen-lockfile && bun test && bunx tsc --noEmit
 
   python:
     name: Python
@@ -43,7 +48,8 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
-      - run: cd py && pip install -e . && GOOGLE_CLIENT_ID=test GOOGLE_CLIENT_SECRET=test GOOGLE_REFRESH_TOKEN=test python3 -c "from src.server import *; print('OK')"
+      - run: cd py && pip install -e . && python3 -m unittest discover -s tests && GOOGLE_CLIENT_ID=test GOOGLE_CLIENT_SECRET=test GOOGLE_REFRESH_TOKEN=test python3 -c "from google_health_mcp.server import *; print('OK')"
+      - run: pip install ruff && ruff check py/ oauth_health.py scripts/
 
   dashboard:
     name: Dashboard (Astro.js)
@@ -54,3 +60,82 @@ jobs:
         with:
           node-version: '22'
       - run: cd astrojs && npm ci && npm run check && npm test && npm run build
+
+  parity:
+    name: Cross-language parity (spec/)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.25'
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - run: cd ts && bun install --frozen-lockfile
+      - run: cd py && pip install -e .
+      - run: cargo build
+      - run: python3 scripts/check-parity.py
+
+  c:
+    name: C
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
+      - run: cd c && make
+
+  zig:
+    name: Zig (PoC)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: |
+          curl -sSL https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz | tar -xJ -C /tmp
+          cd zig && /tmp/zig-x86_64-linux-0.16.0/zig build -Doptimize=ReleaseSmall
+
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build -t google-health-mcp:ci .
+
+  security:
+    name: Security scans
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.25'
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: cargo audit
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: govulncheck
+        continue-on-error: true
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          cd go && govulncheck ./...
+
+      - name: pip-audit
+        continue-on-error: true
+        run: |
+          pip install -e py/ pip-audit
+          pip-audit --skip-editable
+
+      - name: npm audit (astrojs)
+        continue-on-error: true
+        run: cd astrojs && npm ci && npm audit
