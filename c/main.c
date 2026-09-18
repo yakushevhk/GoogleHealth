@@ -305,7 +305,7 @@ static void handle_request(AuthState *auth, const char *line) {
     if (id && cJSON_IsNumber(id)) snprintf(id_str, sizeof(id_str), "%d", id->valueint);
 
     if (strcmp(m, "initialize") == 0) {
-        send_response(id_str, "{\"protocolVersion\":\"2025-03-26\",\"capabilities\":{\"tools\":{},\"resources\":{},\"prompts\":{}},\"serverInfo\":{\"name\":\"google-health-mcp\",\"version\":\"0.2.0\"}}");
+        send_response(id_str, "{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{\"tools\":{},\"resources\":{},\"prompts\":{}},\"serverInfo\":{\"name\":\"google-health-mcp\",\"version\":\"0.2.0\"}}");
     } else if (strcmp(m, "notifications/initialized") == 0) {
         /* no response for notifications */
     } else if (strcmp(m, "tools/list") == 0) {

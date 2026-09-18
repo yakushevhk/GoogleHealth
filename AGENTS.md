@@ -22,8 +22,9 @@ Multi-language MCP server for Google Health Connect API v4. One protocol, six la
 | `go/` | Go implementation |
 | `ts/` | TypeScript (Bun) implementation |
 | `py/` | Python implementation |
-| `c/` | C implementation (partial) |
-| `zig/` | Zig implementation (PoC) |
+| `c/` | C implementation (partial, 15 tools) |
+| `zig/` | Zig implementation (partial, 15 tools) |
+| `php/` | PHP implementation (partial, 15 tools) |
 | `astrojs/` | Web dashboard (Astro 7 + ECharts) |
 | `spec/` | Canonical tools/resources/prompts/data-types snapshots generated from Rust |
 | `scripts/check-parity.py` | Conformance check: diffs every implementation against `spec/` |

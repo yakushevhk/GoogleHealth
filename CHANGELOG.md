@@ -9,9 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### New implementations
+- **PHP** (`php/`, partial) — single-file stdio MCP server mirroring `c/`: OAuth2 refresh via ext-curl, 39-type registry, 15 core tools, path-segment validation; CI lint (`php -l`) + stdio smoke job, probed by the parity check
+- **Zig** (`zig/`) promoted from PoC to the same partial level as C — OAuth2 + HTTPS via `std.http.Client`, all 15 core tools, `filter_name`/`filter_field` metadata, path-segment validation
+
 #### Cross-implementation conformance
 - `spec/` — canonical snapshots of all 35 tools, 3 resources + 1 resource template, 3 prompts, and 39 data types, generated from the Rust reference
-- `scripts/check-parity.py` — launches every implementation over stdio and diffs tools/resources/prompts/`list_data_types` output against `spec/` (C/Zig checked as subsets); `make parity` / `make update-spec`
+- `scripts/check-parity.py` — launches every implementation over stdio and diffs tools/resources/prompts/`list_data_types` output against `spec/` (C/Zig/PHP checked as subsets); `make parity` / `make update-spec`
 - TS: `bun:test` suite covering helpers, path validation, and result shaping (`ts/src/tools.test.ts`)
 - Python: `unittest` suite (`py/tests/test_tools.py`)
 

@@ -8,8 +8,8 @@ Usage:
     python3 scripts/check-parity.py              # verify all launchable impls
     python3 scripts/check-parity.py --update-spec  # regenerate spec/ from Rust
 
-C and Zig are partial implementations: their tool names must be a subset of the
-spec and their `list_data_types` output must match spec/data-types.json.
+C, Zig and PHP are partial implementations: their tool names must be a subset
+of the spec and their `list_data_types` output must match spec/data-types.json.
 """
 
 import json
@@ -35,6 +35,7 @@ ENV = {
 
 PY_VENV = ROOT / "py/.venv/bin/python"
 PY_BIN = str(PY_VENV) if PY_VENV.exists() else (shutil.which("python3") or "python3")
+PHP = os.environ.get("PHP_BIN") or shutil.which("php") or "php"
 
 # name -> (command, cwd, full_parity)
 IMPLS = {
@@ -44,6 +45,7 @@ IMPLS = {
     "python": ([PY_BIN, "-m", "google_health_mcp.server"], ROOT / "py", True),
     "c": ([str(ROOT / "c/google-health-mcp")], ROOT / "c", False),
     "zig": ([str(ROOT / "zig/zig-out/bin/google-health-mcp")], ROOT / "zig", False),
+    "php": ([PHP, "main.php"], ROOT / "php", False),
 }
 
 

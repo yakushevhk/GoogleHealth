@@ -17,7 +17,7 @@
 - **All 35 tools, 4 resources, 3 prompts** must be present in Go, TS, and Python.
 - **Data types**: All 39 Google Health Connect data types must be registered in every implementation.
 - **Auth flow**: Token refresh, retry logic, caching must behave identically.
-- **C and Zig** are exempt from parity requirements (documented as partial/PoC).
+- **C, Zig, and PHP** are exempt from parity requirements (documented as partial).
 
 ## Common Mistakes
 
