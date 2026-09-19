@@ -74,9 +74,19 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: curl
       - run: cd ts && bun install --frozen-lockfile
       - run: cd py && pip install -e .
       - run: cargo build
+      - name: build partial impls (C, Zig) for subset probing
+        run: |
+          sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
+          cd c && make && cd ..
+          curl -sSL https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz | tar -xJ -C /tmp
+          cd zig && /tmp/zig-x86_64-linux-0.16.0/zig build -Doptimize=ReleaseSmall
       - run: python3 scripts/check-parity.py
 
   c:
@@ -86,15 +96,69 @@ jobs:
       - uses: actions/checkout@v7
       - run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
       - run: cd c && make
+      - name: stdio + HTTP smoke test
+        run: |
+          cd c
+          export GOOGLE_CLIENT_ID=ci GOOGLE_CLIENT_SECRET=ci GOOGLE_REFRESH_TOKEN=ci
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
+            | ./google-health-mcp | python3 -c 'import sys,json; assert len(json.loads(sys.stdin.read())["result"]["tools"]) == 15'
+          MCP_API_KEY=ci-test PORT=3801 ./google-health-mcp --http &
+          sleep 1
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:3801/mcp -d '{}')" = "401"
+          curl -sf -X POST http://127.0.0.1:3801/mcp -H 'Authorization: Bearer ci-test' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | grep -q '"tools"'
+          kill %1
 
   zig:
-    name: Zig (PoC)
+    name: Zig
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - run: |
           curl -sSL https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz | tar -xJ -C /tmp
           cd zig && /tmp/zig-x86_64-linux-0.16.0/zig build -Doptimize=ReleaseSmall
+      - name: stdio + HTTP smoke test
+        run: |
+          cd zig
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
+            | ./zig-out/bin/google-health-mcp | python3 -c 'import sys,json; assert len(json.loads(sys.stdin.read())["result"]["tools"]) == 15'
+          MCP_API_KEY=ci-test PORT=3802 ./zig-out/bin/google-health-mcp --http &
+          sleep 1
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:3802/mcp -d '{}')" = "401"
+          curl -sf -X POST http://127.0.0.1:3802/mcp -H 'Authorization: Bearer ci-test' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | grep -q '"tools"'
+          kill %1
+
+  php:
+    name: PHP
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: curl
+      - run: php -l php/main.php
+      - name: stdio smoke test
+        run: |
+          cd php && printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' \
+            '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_data_types","arguments":{}}}' \
+            | php main.php | python3 -c \
+            'import sys, json; lines=[json.loads(l) for l in sys.stdin]; \
+             assert lines[0]["result"]["protocolVersion"]; \
+             assert len(lines[1]["result"]["tools"]) == 15; \
+             assert json.loads(lines[2]["result"]["content"][0]["text"])["count"] == 39'
+      - name: HTTP mode smoke test
+        run: |
+          cd php
+          MCP_API_KEY=ci-test PORT=3803 php main.php --http &
+          sleep 1
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:3803/mcp -d '{}')" = "401"
+          curl -sf -X POST http://127.0.0.1:3803/mcp -H 'Authorization: Bearer ci-test' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | grep -q '"tools"'
+          kill %1
 
   docker:
     name: Docker build

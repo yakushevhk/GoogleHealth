@@ -20,7 +20,9 @@ Thank you for your interest in contributing! This project provides MCP (Model Co
 - **Go 1.25+** — for the Go implementation
 - **Bun** — for the TypeScript implementation
 - **Python 3.11+** — for the Python implementation
-- **Zig 0.16** — for the Zig PoC
+- **C compiler + libcurl-dev** — for the C implementation (`cd c && make`)
+- **Zig 0.16** — for the Zig implementation
+- **PHP 8.0+ CLI + ext-curl** — for the PHP implementation
 - **Google Cloud project** with OAuth2 credentials (see [START.md](START.md))
 
 ### Running Tests
@@ -34,19 +36,34 @@ cd go && go test ./... -v
 
 # Dashboard (Astro.js)
 cd astrojs && npm test
+
+# TypeScript
+cd ts && bun test
+
+# Python
+cd py && python3 -m unittest discover -s tests
+
+# PHP lint
+php -l php/main.php
+
+# Cross-implementation conformance (all impls vs spec/)
+python3 scripts/check-parity.py
 ```
 
 ## Project Structure
 
-The reference implementation is in **Rust** (`src/`). All other implementations (Go, TypeScript, Python, Zig, C) must maintain parity with the Rust version.Go, TypeScript, and Python must maintain 1:1 parity with the Rust version. C and Zig are partial/PoC implementations; align them with Rust where implemented.
+The reference implementation is in **Rust** (`src/`). Go, TypeScript, and Python must maintain 1:1 parity with the Rust version. C, Zig, and PHP are partial implementations (same 15-tool core set); align them with Rust where implemented.
 
 ```
 src/        # Rust (reference) — 35 tools, 39 types
 go/         # Go — full parity
 ts/         # TypeScript (Bun) — full parity
 py/         # Python — full parity
-zig/        # Zig — PoC (10 tools)
-c/          # C — partial
+c/          # C — partial (15 tools)
+zig/        # Zig — partial (15 tools)
+php/        # PHP — partial (15 tools)
+spec/       # Canonical snapshots of tools/resources/prompts/types
+scripts/    # check-parity.py — cross-impl conformance check
 astrojs/    # Web dashboard (read + write)
 ```
 
@@ -58,7 +75,8 @@ When adding a new tool or data type:
 2. Port to Go (`go/tools_*.go`, `go/types.go`)
 3. Port to TypeScript (`ts/src/tools.ts`, `ts/src/types.ts`)
 4. Port to Python (`py/google_health_mcp/tools.py`, `py/google_health_mcp/types.py`)
-5. Update README.md with the new tool/type documentation
+5. Regenerate the spec and verify conformance: `python3 scripts/check-parity.py --update-spec` then `python3 scripts/check-parity.py`
+6. Update README.md with the new tool/type documentation
 
 ## Code Style
 

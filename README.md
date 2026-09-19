@@ -35,10 +35,11 @@ Full access to the **Google Health API v4** via MCP. **35 tools**, 4 resources, 
 | **Go** | `go/` | ~4929 | 7 MB | 10.5 MB | production |
 | **TypeScript (Bun)** | `ts/` | ~1485 | — | ~35 MB | production |
 | **Python** | `py/` | ~2291 | — | ~45 MB | production |
-| **C** | `c/` | ~630 | 76 KB | <5 MB | 15 tools |
-| **Zig** | `zig/` | 227 | 101 KB | <2 MB | PoC (10 tools) |
+| **C** | `c/` | ~800 | ~100 KB | <5 MB | 15 tools |
+| **Zig** | `zig/` | ~705 | ~640 KB | <2 MB | 15 tools |
+| **PHP** | `php/` | ~560 | — | ~25 MB | 15 tools |
 
-Rust, Go, TypeScript, and Python implementations have full parity: 35 tools, 39 data types, auth logic, and critical algorithms. C and Zig are partial implementations.
+Rust, Go, TypeScript, and Python implementations have full parity: 35 tools, 39 data types, auth logic, and critical algorithms. C, Zig, and PHP are partial implementations (same 15-tool core set).
 
 ## Quick Start
 
@@ -359,9 +360,13 @@ Google refresh tokens expire if unused for 6 months. Use `refresh_token.sh` to k
 - Python 3.11+, asyncio, httpx (async HTTP)
 - mcp 2.x (MCPServer, stdio + StreamableHTTP)
 
-### Zig (PoC)
-- Zig 0.16, std.json, std.posix (raw fd I/O)
-- MCP JSON-RPC by hand (no SDK)
+### Zig (partial)
+- Zig 0.16, std.http.Client (TLS), std.json, std.posix (raw fd I/O + sockets)
+- MCP JSON-RPC by hand (no SDK); stdio + minimal `POST /mcp` (`--http`)
+
+### PHP (partial)
+- PHP 8.0+ CLI, ext-curl, stream_socket_server
+- Single file, no dependencies; stdio + minimal `POST /mcp` (`--http`)
 
 ### Common
 - Google Health API v4

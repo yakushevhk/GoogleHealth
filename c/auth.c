@@ -1,3 +1,5 @@
+#define _DEFAULT_SOURCE /* strdup, nanosleep under -std=c11 */
+
 #include "auth.h"
 #include "cJSON.h"
 #include <curl/curl.h>

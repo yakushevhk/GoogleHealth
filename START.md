@@ -2,7 +2,7 @@
 
 This guide covers the **Rust implementation** only. It is written for LLMs and developers who need to understand, build, configure, and run the server from scratch.
 
-For an overview of all implementations (Rust, Go, TypeScript, Python, C, Zig, Astro.js dashboard), see [README.md](README.md).
+For an overview of all implementations (Rust, Go, TypeScript, Python, C, Zig, PHP, Astro.js dashboard), see [README.md](README.md).
 
 ---
 

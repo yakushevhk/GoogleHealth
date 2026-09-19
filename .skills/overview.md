@@ -17,10 +17,11 @@ Google Health MCP Server — a multi-language implementation of an MCP (Model Co
 | `go/` | Go | Full parity (100%) | Uses mcp-go SDK |
 | `ts/` | TypeScript (Bun) | Full parity (100%) | Uses @modelcontextprotocol/sdk |
 | `py/` | Python | Full parity (100%) | Uses mcp SDK 2.x, httpx, uvicorn |
-| `c/` | C | Partial (~40%) | 15 tools (3 stubbed), no resources/prompts/HTTP |
-| `zig/` | Zig | PoC (~15%) | 10 tools listed, only 3 functional (no API access) |
+| `c/` | C | Partial (~40%) | 15 tools (3 stubbed), no resources/prompts; minimal `--http` via http.c |
+| `zig/` | Zig | Partial (~40%) | 15 tools (3 stubbed), OAuth+HTTPS via std.http.Client, minimal `--http` |
+| `php/` | PHP | Partial (~40%) | 15 tools (3 stubbed), ext-curl, single file, minimal `--http` |
 | `astrojs/` | Astro.js (Dashboard) | Web UI (read + write) | Astro 7, ECharts, Vitest |
 
 ## Key Rule
 
-**Rust (`src/`) is the reference implementation.** Every tool, resource, prompt, data type, auth flow, retry strategy, and caching behavior in Go/TS/Python must be 1:1 with Rust. C and Zig are documented as partial and do not require parity.
+**Rust (`src/`) is the reference implementation.** Every tool, resource, prompt, data type, auth flow, retry strategy, and caching behavior in Go/TS/Python must be 1:1 with Rust. C, Zig, and PHP are documented as partial and do not require parity.

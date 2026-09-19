@@ -8,7 +8,7 @@ This document describes the system architecture of the Google Health MCP Server.
 ┌─────────────────┐     MCP (stdio/HTTP)     ┌──────────────────────┐
 │   MCP Client    │ ◄──────────────────────► │   Google Health MCP  │
 │ (Claude Desktop │                           │       Server         │
-│  ZCode, etc.)   │                           │  (Rust/Go/TS/Python) │
+│  ZCode, etc.)   │                           │ (Rust/Go/TS/Py/...)  │
 └─────────────────┘                           └──────────┬───────────┘
                                                          │
                                                          │ HTTPS (OAuth2)
@@ -245,3 +245,26 @@ src/
 3. **HTTP client**: Reqwest with rustls-tls (no OpenSSL)
 4. **Serialization**: Serde with derive macros
 5. **MCP SDK**: rust-mcp-sdk 1.0 with rust-mcp-axum for HTTP transport
+
+## Other Implementations
+
+| Impl | Status | stdio | HTTP |
+|------|--------|:-----:|------|
+| `src/` Rust | reference (35 tools) | ✓ | Streamable HTTP + SSE, `/health` |
+| `go/` Go | full parity | ✓ | StreamableHTTP (mcp-go SDK) |
+| `ts/` TypeScript (Bun) | full parity | ✓ | StreamableHTTPServerTransport |
+| `py/` Python | full parity | ✓ | StreamableHTTP (mcp SDK) |
+| `c/` C | partial (15 tools) | ✓ | minimal `POST /mcp` (http.c) |
+| `zig/` Zig | partial (15 tools) | ✓ | minimal `POST /mcp` |
+| `php/` PHP | partial (15 tools) | ✓ | minimal `POST /mcp` |
+
+Partial implementations share the stdio JSON-RPC contract and expose a
+minimal `--http` mode: `POST /mcp` (or `/`) with `Authorization: Bearer
+$MCP_API_KEY`, one JSON-RPC request per connection, `202` for notifications —
+no SSE, no sessions. `MCP_API_KEY` is required (exit 1 if unset) and compared
+in constant time, same as the full implementations.
+
+`spec/` holds canonical snapshots generated from Rust;
+`scripts/check-parity.py` diffs every implementation against them over stdio
+(tools, resources, prompts, all 39 `describe_data_type` outputs, and error
+signalling).

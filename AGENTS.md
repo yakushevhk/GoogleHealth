@@ -22,8 +22,9 @@ Multi-language MCP server for Google Health Connect API v4. One protocol, six la
 | `go/` | Go implementation |
 | `ts/` | TypeScript (Bun) implementation |
 | `py/` | Python implementation |
-| `c/` | C implementation (partial) |
-| `zig/` | Zig implementation (PoC) |
+| `c/` | C implementation (partial, 15 tools) |
+| `zig/` | Zig implementation (partial, 15 tools) |
+| `php/` | PHP implementation (partial, 15 tools) |
 | `astrojs/` | Web dashboard (Astro 7 + ECharts) |
 | `spec/` | Canonical tools/resources/prompts/data-types snapshots generated from Rust |
 | `scripts/check-parity.py` | Conformance check: diffs every implementation against `spec/` |
@@ -36,6 +37,8 @@ Multi-language MCP server for Google Health Connect API v4. One protocol, six la
 - **Go**: `go/main.go`, `go/tools_*.go`, `go/types.go`, `go/auth.go`, `go/helpers.go`
 - **TypeScript**: `ts/src/index.ts`
 - **Python**: `py/google_health_mcp/server.py`, `py/google_health_mcp/tools.py`, `py/google_health_mcp/types.py`, `py/google_health_mcp/auth.py`
+- **C**: `c/main.c`, `c/auth.c`, `c/http.c` — partial impls also accept `--http` (minimal `POST /mcp` + `MCP_API_KEY`, same security contract)
+- **Zig**: `zig/src/main.zig`; **PHP**: `php/main.php` — single files covering stdio + minimal `--http`
 - **Dashboard**: `astrojs/src/lib/`, `astrojs/src/pages/`, `astrojs/src/components/`
 
 ## Build & Test Quick Reference
@@ -44,8 +47,11 @@ Multi-language MCP server for Google Health Connect API v4. One protocol, six la
 cargo test                              # Rust tests
 cd go && go test ./... -v               # Go tests
 cd astrojs && npm test                  # Dashboard tests
-cd ts && bun install                    # TS dependencies
-cd py && pip install -e .               # Python dependencies
+cd ts && bun install && bun test        # TS deps + tests
+cd py && pip install -e . && python3 -m unittest discover -s tests  # Python
+cd c && make                            # C (needs libcurl-dev)
+cd zig && zig build                     # Zig
+php -l php/main.php                     # PHP lint
 python3 scripts/check-parity.py         # Cross-impl conformance vs spec/
 python3 scripts/check-parity.py --update-spec  # Regenerate spec after intentional Rust changes
 ```

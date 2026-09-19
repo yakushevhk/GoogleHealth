@@ -58,6 +58,9 @@ lint-ts:
 lint-py:
 	ruff check py/ oauth_health.py scripts/
 
+lint-php:
+	@command -v php >/dev/null && php -l php/main.php || echo "php not installed, skipping"
+
 # ── Clean build artifacts ───────────────────────────────────────────────────
 
 clean:

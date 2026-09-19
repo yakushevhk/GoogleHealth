@@ -8,8 +8,8 @@ Usage:
     python3 scripts/check-parity.py              # verify all launchable impls
     python3 scripts/check-parity.py --update-spec  # regenerate spec/ from Rust
 
-C and Zig are partial implementations: their tool names must be a subset of the
-spec and their `list_data_types` output must match spec/data-types.json.
+C, Zig and PHP are partial implementations: their tool names must be a subset
+of the spec and their `list_data_types` output must match spec/data-types.json.
 """
 
 import json
@@ -35,6 +35,7 @@ ENV = {
 
 PY_VENV = ROOT / "py/.venv/bin/python"
 PY_BIN = str(PY_VENV) if PY_VENV.exists() else (shutil.which("python3") or "python3")
+PHP = os.environ.get("PHP_BIN") or shutil.which("php") or "php"
 
 # name -> (command, cwd, full_parity)
 IMPLS = {
@@ -44,6 +45,7 @@ IMPLS = {
     "python": ([PY_BIN, "-m", "google_health_mcp.server"], ROOT / "py", True),
     "c": ([str(ROOT / "c/google-health-mcp")], ROOT / "c", False),
     "zig": ([str(ROOT / "zig/zig-out/bin/google-health-mcp")], ROOT / "zig", False),
+    "php": ([PHP, "main.php"], ROOT / "php", False),
 }
 
 
@@ -103,11 +105,61 @@ def probe(name, cmd, cwd):
             result["data_types"] = json.loads(call["content"][0]["text"])["data_types"]
         except (KeyError, IndexError, json.JSONDecodeError):
             result["data_types"] = []
+
+        # Deep check: describe_data_type must resolve every advertised type id.
+        ids = [t["id"] for t in result["data_types"]
+               if isinstance(t, dict) and isinstance(t.get("id"), str)]
+        describe_bad = []
+        for n, tid in enumerate(ids):
+            msg = query(proc, "tools/call", 100 + n, {
+                "name": "describe_data_type", "arguments": {"data_type": tid},
+            })
+            if not describe_ok(msg, tid):
+                describe_bad.append(tid)
+        result["describe_bad"] = describe_bad
+
+        # Error paths: unknown tool + missing required arg must signal an error.
+        result["err_unknown_tool"] = has_error_signal(query(proc, "tools/call", 200, {
+            "name": "nonexistent_tool_xyz", "arguments": {},
+        }))
+        result["err_missing_arg"] = has_error_signal(query(proc, "tools/call", 201, {
+            "name": "describe_data_type", "arguments": {},
+        }))
         return result, None
     except Exception as e:  # noqa: BLE001 - report any probe failure
         return None, f"{type(e).__name__}: {e}"
     finally:
         proc.kill()
+
+
+def call_text(msg):
+    """First text content of a tools/call result, or ''."""
+    try:
+        return (msg.get("result") or {})["content"][0]["text"]
+    except (KeyError, IndexError, TypeError):
+        return ""
+
+
+def describe_ok(msg, tid):
+    """describe_data_type must return content whose JSON has matching id."""
+    if msg.get("error"):
+        return False
+    try:
+        obj = json.loads(call_text(msg))
+    except json.JSONDecodeError:
+        return False
+    return isinstance(obj, dict) and obj.get("id") == tid
+
+
+def has_error_signal(msg):
+    """Any of: JSON-RPC error, isError result, or an 'error'/'info'-free payload."""
+    if msg.get("error"):
+        return True
+    res = msg.get("result") or {}
+    if res.get("isError"):
+        return True
+    text = call_text(msg)
+    return '"error"' in text or '"errors"' in text
 
 
 def norm(obj):
@@ -247,6 +299,12 @@ def main():
         e, w = diff_data_types(spec["data_types"], impl["data_types"], full)
         errors += e
         warnings += w
+        if impl["describe_bad"]:
+            errors.append(f"describe_data_type failed for: {impl['describe_bad']}")
+        if not impl["err_unknown_tool"]:
+            errors.append("unknown tool call did not signal an error")
+        if not impl["err_missing_arg"]:
+            errors.append("missing required arg did not signal an error")
         for warn in warnings:
             print(f"  warn: {warn}")
         for err in errors:

@@ -8,6 +8,8 @@
   - Go: `crypto/subtle.ConstantTimeCompare`
   - Python: `hmac.compare_digest`
   - TypeScript: `crypto.timingSafeEqual`
+  - C: XOR-fold `ct_equal` in `http.c`; Zig: XOR-fold `ctEqual`; PHP: `hash_equals`
+- **Partial impls' HTTP is minimal** — C/Zig/PHP `--http` accepts only `POST /mcp` (or `/`) with Bearer auth, one JSON-RPC per connection; no SSE, sessions, or notifications (they get `202`).
 - **Never commit `.env` files.** Only `.env.example` with empty values.
 - **Credential redaction** in logs: Rust redacts tokens in debug output.
 
@@ -17,7 +19,7 @@
 - **All 35 tools, 4 resources, 3 prompts** must be present in Go, TS, and Python.
 - **Data types**: All 39 Google Health Connect data types must be registered in every implementation.
 - **Auth flow**: Token refresh, retry logic, caching must behave identically.
-- **C and Zig** are exempt from parity requirements (documented as partial/PoC).
+- **C, Zig, and PHP** are exempt from parity requirements (documented as partial).
 
 ## Common Mistakes
 

@@ -26,6 +26,18 @@ make
 ./google-health-mcp
 ```
 
+## HTTP Mode
+
+```bash
+export MCP_API_KEY=your-secret
+./google-health-mcp --http    # HOST=127.0.0.1, PORT=3000 by default
+```
+
+POST one JSON-RPC request per call to `http://127.0.0.1:3000/mcp` (or `/`) with
+`Authorization: Bearer $MCP_API_KEY`. Exits with code 1 if `MCP_API_KEY` is
+unset; the key comparison is constant-time. Minimal transport: POST-only, no
+SSE or sessions.
+
 ## Environment Variables
 
 | Variable | Required | Description |
@@ -33,6 +45,9 @@ make
 | `GOOGLE_CLIENT_ID` | Yes | OAuth client ID |
 | `GOOGLE_CLIENT_SECRET` | Yes | OAuth client secret |
 | `GOOGLE_REFRESH_TOKEN` | Yes | OAuth refresh token |
+| `MCP_API_KEY` | `--http` only | Bearer key; required, exits(1) if unset |
+| `HOST` | No | HTTP bind address (default `127.0.0.1`) |
+| `PORT` | No | HTTP port (default `3000`) |
 
 ## Structure
 
@@ -42,6 +57,7 @@ c/
 ├── main.c        # MCP server: tool registration, JSON-RPC dispatch
 ├── auth.c        # OAuth2 token refresh, HTTP client
 ├── auth.h        # Auth interface
+├── http.c        # Minimal HTTP mode: POST /mcp + Bearer auth
 ├── cJSON.c       # Vendored cJSON library (MIT, Dave Gamble)
 └── cJSON.h       # cJSON header
 ```
