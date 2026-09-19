@@ -35,9 +35,9 @@ Full access to the **Google Health API v4** via MCP. **35 tools**, 4 resources, 
 | **Go** | `go/` | ~4929 | 7 MB | 10.5 MB | production |
 | **TypeScript (Bun)** | `ts/` | ~1485 | — | ~35 MB | production |
 | **Python** | `py/` | ~2291 | — | ~45 MB | production |
-| **C** | `c/` | ~630 | 76 KB | <5 MB | 15 tools |
-| **Zig** | `zig/` | ~480 | ~130 KB | <2 MB | 15 tools |
-| **PHP** | `php/` | ~470 | — | ~25 MB | 15 tools |
+| **C** | `c/` | ~800 | ~100 KB | <5 MB | 15 tools |
+| **Zig** | `zig/` | ~705 | ~640 KB | <2 MB | 15 tools |
+| **PHP** | `php/` | ~560 | — | ~25 MB | 15 tools |
 
 Rust, Go, TypeScript, and Python implementations have full parity: 35 tools, 39 data types, auth logic, and critical algorithms. C, Zig, and PHP are partial implementations (same 15-tool core set).
 
