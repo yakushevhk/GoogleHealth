@@ -99,6 +99,7 @@ jobs:
       - name: stdio + HTTP smoke test
         run: |
           cd c
+          export GOOGLE_CLIENT_ID=ci GOOGLE_CLIENT_SECRET=ci GOOGLE_REFRESH_TOKEN=ci
           printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
             | ./google-health-mcp | python3 -c 'import sys,json; assert len(json.loads(sys.stdin.read())["result"]["tools"]) == 15'
           MCP_API_KEY=ci-test PORT=3801 ./google-health-mcp --http &
