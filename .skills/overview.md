@@ -17,9 +17,9 @@ Google Health MCP Server — a multi-language implementation of an MCP (Model Co
 | `go/` | Go | Full parity (100%) | Uses mcp-go SDK |
 | `ts/` | TypeScript (Bun) | Full parity (100%) | Uses @modelcontextprotocol/sdk |
 | `py/` | Python | Full parity (100%) | Uses mcp SDK 2.x, httpx, uvicorn |
-| `c/` | C | Partial (~40%) | 15 tools (3 stubbed), no resources/prompts/HTTP |
-| `zig/` | Zig | Partial (~40%) | 15 tools (3 stubbed), OAuth+HTTPS via std.http.Client |
-| `php/` | PHP | Partial (~40%) | 15 tools (3 stubbed), ext-curl, single file |
+| `c/` | C | Partial (~40%) | 15 tools (3 stubbed), no resources/prompts; minimal `--http` via http.c |
+| `zig/` | Zig | Partial (~40%) | 15 tools (3 stubbed), OAuth+HTTPS via std.http.Client, minimal `--http` |
+| `php/` | PHP | Partial (~40%) | 15 tools (3 stubbed), ext-curl, single file, minimal `--http` |
 | `astrojs/` | Astro.js (Dashboard) | Web UI (read + write) | Astro 7, ECharts, Vitest |
 
 ## Key Rule

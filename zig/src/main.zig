@@ -11,6 +11,17 @@ const Allocator = std.mem.Allocator;
 extern "c" fn write(fd: c_int, buf: [*]const u8, count: usize) isize;
 extern "c" fn time(t: ?*i64) i64;
 extern "c" fn usleep(usec: c_uint) c_int;
+extern "c" fn socket(domain: c_int, type_: c_int, protocol: c_int) c_int;
+extern "c" fn setsockopt(fd: c_int, level: c_int, optname: c_int, optval: ?*const anyopaque, optlen: c_uint) c_int;
+extern "c" fn bind(fd: c_int, addr: *const anyopaque, len: c_uint) c_int;
+extern "c" fn listen(fd: c_int, backlog: c_int) c_int;
+extern "c" fn accept(fd: c_int, addr: ?*anyopaque, len: ?*c_uint) c_int;
+extern "c" fn recv(fd: c_int, buf: [*]u8, len: usize, flags: c_int) isize;
+extern "c" fn send(fd: c_int, buf: [*]const u8, len: usize, flags: c_int) isize;
+extern "c" fn close(fd: c_int) c_int;
+extern "c" fn htons(port: u16) u16;
+extern "c" fn inet_pton(family: c_int, str: [*:0]const u8, dst: *anyopaque) c_int;
+extern "c" fn strncasecmp(a: [*]const u8, b: [*]const u8, n: usize) c_int;
 
 fn fdWrite(fd: c_int, data: []const u8) void {
     _ = write(fd, data.ptr, data.len);
@@ -488,10 +499,139 @@ fn errResp(allocator: Allocator, id: []const u8, msg: []const u8) ![]u8 {
     return try std.fmt.allocPrint(allocator, "{{\"jsonrpc\":\"2.0\",\"id\":{s},\"error\":{{\"code\":-32602,\"message\":\"{s}\"}}}}", .{ id, msg });
 }
 
+// ─── Minimal HTTP transport: POST /mcp, Bearer MCP_API_KEY auth ──────────────
+// Single-threaded, one request per connection. No SSE/sessions — partial impl.
+
+const sockaddr_in = extern struct {
+    family: u16 = 2, // AF_INET
+    port: u16 = 0,
+    addr: u32 = 0,
+    zero: [8]u8 = [_]u8{0} ** 8,
+};
+
+fn ctEqual(a: []const u8, b: []const u8) bool {
+    var diff: usize = a.len ^ b.len;
+    for (0..@min(a.len, b.len)) |i| diff |= a[i] ^ b[i];
+    return diff == 0;
+}
+
+fn httpReply(fd: c_int, code: u16, status: []const u8, body: []const u8) void {
+    var head: [256]u8 = undefined;
+    const h = std.fmt.bufPrint(&head, "HTTP/1.1 {d} {s}\r\nContent-Type: application/json\r\nContent-Length: {d}\r\nConnection: close\r\n\r\n", .{ code, status, body.len }) catch return;
+    _ = send(fd, h.ptr, h.len, 0);
+    if (body.len > 0) _ = send(fd, body.ptr, body.len, 0);
+}
+
+fn findHeaderCase(req: []const u8, name: []const u8) ?[]const u8 {
+    // Case-insensitive "\nName:" scan.
+    var i: usize = 0;
+    while (i + name.len + 2 < req.len) : (i += 1) {
+        if (req[i] != '\n') continue;
+        if (strncasecmp(req.ptr + i + 1, name.ptr, name.len) == 0 and req[i + 1 + name.len] == ':') {
+            var v = req[i + 2 + name.len ..];
+            while (v.len > 0 and (v[0] == ' ' or v[0] == '\t')) v = v[1..];
+            var end: usize = 0;
+            while (end < v.len and v[end] != '\r' and v[end] != '\n') end += 1;
+            return v[0..end];
+        }
+    }
+    return null;
+}
+
+fn httpHandleConn(auth: ?*Auth, api_key: []const u8, fd: c_int) void {
+    defer _ = close(fd);
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const buf = alloc.alloc(u8, 1024 * 1024) catch return;
+    var total: usize = 0;
+    var body_start: usize = 0;
+    var want_body: usize = 0;
+    var headers_done = false;
+    while (total < buf.len) {
+        if (!headers_done) {
+            if (std.mem.indexOf(u8, buf[0..total], "\r\n\r\n")) |pos| {
+                headers_done = true;
+                body_start = pos + 4;
+                if (findHeaderCase(buf[0..pos], "content-length")) |cl|
+                    want_body = std.fmt.parseInt(usize, cl, 10) catch 0;
+            }
+        }
+        if (headers_done and total - body_start >= want_body) break;
+        const n = recv(fd, buf.ptr + total, buf.len - total, 0);
+        if (n <= 0) break;
+        total += @intCast(n);
+    }
+    if (total == 0 or !headers_done) return;
+    const req = buf[0..total];
+
+    // Method + path
+    const sp1 = std.mem.indexOfScalar(u8, req, ' ') orelse return;
+    const method = req[0..sp1];
+    const sp2 = std.mem.indexOfScalarPos(u8, req, sp1 + 1, ' ') orelse return;
+    const path = req[sp1 + 1 .. sp2];
+    if (!std.mem.eql(u8, method, "POST")) {
+        return httpReply(fd, 405, "Method Not Allowed", "{\"error\":\"POST only\"}");
+    }
+    if (!std.mem.eql(u8, path, "/mcp") and !std.mem.eql(u8, path, "/")) {
+        return httpReply(fd, 404, "Not Found", "{\"error\":\"not found\"}");
+    }
+
+    const authz = findHeaderCase(req, "authorization") orelse {
+        return httpReply(fd, 401, "Unauthorized", "{\"error\":\"unauthorized\"}");
+    };
+    if (authz.len < 8 or !std.ascii.eqlIgnoreCase(authz[0..7], "Bearer ")) {
+        return httpReply(fd, 401, "Unauthorized", "{\"error\":\"unauthorized\"}");
+    }
+    if (!ctEqual(authz[7..], api_key)) {
+        return httpReply(fd, 401, "Unauthorized", "{\"error\":\"unauthorized\"}");
+    }
+
+    const resp = handleRequest(auth, alloc, req[body_start..]) catch {
+        return httpReply(fd, 500, "Internal Server Error", "{\"error\":\"internal\"}");
+    };
+    if (resp.len == 0) {
+        return httpReply(fd, 202, "Accepted", "");
+    }
+    httpReply(fd, 200, "OK", resp);
+}
+
+fn serveHttp(auth: ?*Auth, host: [:0]const u8, port: u16, api_key: []const u8) u8 {
+    const srv = socket(2, 1, 0); // AF_INET, SOCK_STREAM
+    if (srv < 0) return 1;
+    defer _ = close(srv);
+    const one: c_int = 1;
+    _ = setsockopt(srv, 1, 2, &one, @sizeOf(c_int)); // SOL_SOCKET, SO_REUSEADDR
+
+    var addr = sockaddr_in{ .port = htons(port) };
+    if (inet_pton(2, host.ptr, &addr.addr) != 1) {
+        fdWrite(2, "HOST must be an IPv4 address\n");
+        return 1;
+    }
+    if (bind(srv, &addr, @sizeOf(sockaddr_in)) != 0 or listen(srv, 16) != 0) {
+        fdWrite(2, "bind/listen failed\n");
+        return 1;
+    }
+
+    while (true) {
+        const fd = accept(srv, null, null);
+        if (fd < 0) continue;
+        httpHandleConn(auth, api_key, fd);
+    }
+}
+
 // ─── Main: stdio loop via raw POSIX ─────────────────────────────────────────
 
-pub fn main() !void {
+pub fn main(init: std.process.Init.Minimal) !void {
     const allocator = std.heap.page_allocator;
+
+    const http_mode = blk: {
+        for (init.args.vector[1..]) |arg| {
+            if (std.mem.eql(u8, std.mem.sliceTo(arg, 0), "--http")) break :blk true;
+        }
+        break :blk false;
+    };
 
     // OAuth state — created only when all env vars present; API tools degrade
     // gracefully without it so parity checks and registry tools still work.
@@ -517,6 +657,21 @@ pub fn main() !void {
     }
     defer if (auth_state) |*a| a.client.deinit();
 
+    const auth_ptr: ?*Auth = if (auth_state) |*a| a else null;
+
+    if (http_mode) {
+        const key = getEnv("MCP_API_KEY") orelse {
+            fdWrite(2, "MCP_API_KEY env var required for --http mode\n");
+            return error.MissingApiKey;
+        };
+        const host = getEnv("HOST") orelse "127.0.0.1";
+        const port: u16 = blk: {
+            const p = getEnv("PORT") orelse break :blk 3000;
+            break :blk std.fmt.parseInt(u16, p, 10) catch 3000;
+        };
+        std.process.exit(serveHttp(auth_ptr, host, port, key));
+    }
+
     const stdin_fd: posix.fd_t = 0;
 
     var line_buf: [1024 * 1024]u8 = undefined;
@@ -535,7 +690,6 @@ pub fn main() !void {
             var arena = std.heap.ArenaAllocator.init(allocator);
             defer arena.deinit();
 
-            const auth_ptr: ?*Auth = if (auth_state) |*a| a else null;
             const response = handleRequest(auth_ptr, arena.allocator(), line) catch continue;
             if (response.len == 0) continue;
 

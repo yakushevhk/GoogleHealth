@@ -18,6 +18,18 @@ php main.php
 One JSON-RPC request per line on stdin, one response per line on stdout —
 same stdio contract as every other implementation in this repo.
 
+## HTTP Mode
+
+```bash
+export MCP_API_KEY=your-secret
+php main.php --http    # HOST=127.0.0.1, PORT=3000 by default
+```
+
+POST one JSON-RPC request per call to `http://127.0.0.1:3000/mcp` (or `/`) with
+`Authorization: Bearer $MCP_API_KEY`. Exits with code 1 if `MCP_API_KEY` is
+unset; the key comparison is constant-time (`hash_equals`). Minimal transport:
+POST-only, no SSE or sessions.
+
 ## Tools
 
 `list_data_types`, `describe_data_type`, `list_data_points`, `get_data_point`,

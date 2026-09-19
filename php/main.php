@@ -404,48 +404,31 @@ function dispatchTool(?Auth $auth, string $name, array $args): string
 
 // ─── MCP JSON-RPC dispatch ──────────────────────────────────────────────────
 
-function sendResult(mixed $id, string $resultJson): void
-{
-    // $resultJson is emitted verbatim — decoding it would turn empty {} into [].
-    fwrite(STDOUT, '{"jsonrpc":"2.0","id":' . json_encode($id) . ',"result":' . $resultJson . "}\n");
-    fflush(STDOUT);
-}
-
-function sendError(mixed $id, int $code, string $message): void
-{
-    fwrite(STDOUT, json_encode([
-        'jsonrpc' => '2.0',
-        'id' => $id,
-        'error' => ['code' => $code, 'message' => $message],
-    ]) . "\n");
-    fflush(STDOUT);
-}
-
-function handleRequest(?Auth $auth, string $line): void
+/* Build the full JSON-RPC response line for `$line`; null for notifications.
+ * Result JSON is emitted verbatim — a decode/re-encode would turn {} into []. */
+function buildResponse(?Auth $auth, string $line): ?string
 {
     $req = json_decode($line, true);
     if (!is_array($req)) {
-        sendError(null, -32700, 'Parse error');
-        return;
+        return '{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error"}}';
     }
-    $id = $req['id'] ?? null;
+    $idJson = json_encode($req['id'] ?? null);
     $method = $req['method'] ?? null;
     if (!is_string($method)) {
-        sendError($id, -32600, 'Missing method');
-        return;
+        return '{"jsonrpc":"2.0","id":' . $idJson . ',"error":{"code":-32600,"message":"Missing method"}}';
     }
     $params = is_array($req['params'] ?? null) ? $req['params'] : [];
 
     switch ($method) {
         case 'initialize':
-            sendResult($id, json_encode([
+            $result = json_encode([
                 'protocolVersion' => PROTOCOL_VERSION,
                 'capabilities' => ['tools' => new stdClass(), 'resources' => new stdClass(), 'prompts' => new stdClass()],
                 'serverInfo' => ['name' => 'google-health-mcp', 'version' => VERSION],
-            ]));
+            ]);
             break;
         case 'notifications/initialized':
-            break;
+            return null;
         case 'tools/list':
             $tools = [];
             foreach (TOOLS as [$name, $desc]) {
@@ -455,17 +438,96 @@ function handleRequest(?Auth $auth, string $line): void
                     'inputSchema' => ['type' => 'object', 'properties' => new stdClass()],
                 ];
             }
-            sendResult($id, json_encode(['tools' => $tools]));
+            $result = json_encode(['tools' => $tools]);
             break;
         case 'tools/call':
             $toolName = $params['name'] ?? '';
             $toolArgs = is_array($params['arguments'] ?? null) ? $params['arguments'] : [];
-            $result = dispatchTool($auth, is_string($toolName) ? $toolName : '', $toolArgs);
-            sendResult($id, json_encode(['content' => [['type' => 'text', 'text' => $result]]]));
+            $out = dispatchTool($auth, is_string($toolName) ? $toolName : '', $toolArgs);
+            $result = json_encode(['content' => [['type' => 'text', 'text' => $out]]]);
             break;
         default:
-            sendError($id, -32601, 'Method not found');
+            return '{"jsonrpc":"2.0","id":' . $idJson . ',"error":{"code":-32601,"message":"Method not found"}}';
     }
+    return '{"jsonrpc":"2.0","id":' . $idJson . ',"result":' . $result . '}';
+}
+
+// ─── Minimal HTTP transport: POST /mcp, Bearer MCP_API_KEY auth ─────────────
+// Single-threaded, one request per connection. No SSE/sessions — partial impl.
+
+function httpReply($conn, int $code, string $status, string $body = ''): void
+{
+    fwrite($conn, "HTTP/1.1 $code $status\r\nContent-Type: application/json\r\n" .
+        'Content-Length: ' . strlen($body) . "\r\nConnection: close\r\n\r\n" . $body);
+}
+
+function serveHttp(?Auth $auth, string $host, int $port, string $apiKey): int
+{
+    $srv = @stream_socket_server("tcp://$host:$port", $errno, $errstr);
+    if ($srv === false) {
+        fwrite(STDERR, "bind/listen failed: $errstr\n");
+        return 1;
+    }
+    fwrite(STDERR, "google-health-mcp (PHP) — HTTP mode on $host:$port/mcp\n");
+
+    while (($conn = @stream_socket_accept($srv, -1)) !== false) {
+        $req = '';
+        $bodyStart = 0;
+        $wantBody = 0;
+        $headersDone = false;
+        while (strlen($req) < 1024 * 1024) {
+            if (!$headersDone && ($pos = strpos($req, "\r\n\r\n")) !== false) {
+                $headersDone = true;
+                $bodyStart = $pos + 4;
+                if (preg_match('/\nContent-Length:\s*(\d+)/i', substr($req, 0, $pos), $m)) {
+                    $wantBody = (int)$m[1];
+                }
+            }
+            if ($headersDone && strlen($req) - $bodyStart >= $wantBody) {
+                break;
+            }
+            $chunk = fread($conn, 65536);
+            if ($chunk === false || $chunk === '') {
+                break;
+            }
+            $req .= $chunk;
+        }
+
+        if (!preg_match('/^(\S+)\s+(\S+)/', $req, $m)) {
+            fclose($conn);
+            continue;
+        }
+        [, $method, $path] = $m;
+        if ($method !== 'POST') {
+            httpReply($conn, 405, 'Method Not Allowed', '{"error":"POST only"}');
+            fclose($conn);
+            continue;
+        }
+        if ($path !== '/mcp' && $path !== '/') {
+            httpReply($conn, 404, 'Not Found', '{"error":"not found"}');
+            fclose($conn);
+            continue;
+        }
+        $provided = null;
+        if (preg_match('/\nAuthorization:\s*Bearer\s+([^\r\n]+)/i', $req, $am)) {
+            $provided = rtrim($am[1]);
+        }
+        if ($provided === null || !hash_equals($apiKey, $provided)) {
+            httpReply($conn, 401, 'Unauthorized', '{"error":"unauthorized"}');
+            fclose($conn);
+            continue;
+        }
+
+        $body = $headersDone ? substr($req, $bodyStart) : '';
+        $resp = buildResponse($auth, $body);
+        if ($resp === null) {
+            httpReply($conn, 202, 'Accepted');
+        } else {
+            httpReply($conn, 200, 'OK', $resp);
+        }
+        fclose($conn);
+    }
+    return 0;
 }
 
 // ─── Main ───────────────────────────────────────────────────────────────────
@@ -474,6 +536,17 @@ $auth = Auth::fromEnv();
 if ($auth === null) {
     fwrite(STDERR, "Warning: GOOGLE_CLIENT_ID/SECRET/REFRESH_TOKEN not set. API tools will not work.\n");
 }
+if (in_array('--http', $argv ?? [], true)) {
+    $apiKey = getenv('MCP_API_KEY');
+    if (!$apiKey) {
+        fwrite(STDERR, "MCP_API_KEY env var required for --http mode\n");
+        exit(1);
+    }
+    $host = getenv('HOST') ?: '127.0.0.1';
+    $port = (int)(getenv('PORT') ?: 3000);
+    exit(serveHttp($auth, $host, $port > 0 ? $port : 3000, $apiKey));
+}
+
 fwrite(STDERR, 'google-health-mcp (PHP) — stdio mode, ' . count(DATA_TYPES) . ' types, ' . count(TOOLS) . " tools\n");
 
 while (($line = fgets(STDIN)) !== false) {
@@ -481,5 +554,9 @@ while (($line = fgets(STDIN)) !== false) {
     if ($line === '') {
         continue;
     }
-    handleRequest($auth, $line);
+    $resp = buildResponse($auth, $line);
+    if ($resp !== null) {
+        fwrite(STDOUT, $resp . "\n");
+        fflush(STDOUT);
+    }
 }

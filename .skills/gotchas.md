@@ -8,6 +8,8 @@
   - Go: `crypto/subtle.ConstantTimeCompare`
   - Python: `hmac.compare_digest`
   - TypeScript: `crypto.timingSafeEqual`
+  - C: XOR-fold `ct_equal` in `http.c`; Zig: XOR-fold `ctEqual`; PHP: `hash_equals`
+- **Partial impls' HTTP is minimal** — C/Zig/PHP `--http` accepts only `POST /mcp` (or `/`) with Bearer auth, one JSON-RPC per connection; no SSE, sessions, or notifications (they get `202`).
 - **Never commit `.env` files.** Only `.env.example` with empty values.
 - **Credential redaction** in logs: Rust redacts tokens in debug output.
 

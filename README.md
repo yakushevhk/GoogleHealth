@@ -361,12 +361,12 @@ Google refresh tokens expire if unused for 6 months. Use `refresh_token.sh` to k
 - mcp 2.x (MCPServer, stdio + StreamableHTTP)
 
 ### Zig (partial)
-- Zig 0.16, std.http.Client (TLS), std.json, std.posix (raw fd I/O)
-- MCP JSON-RPC by hand (no SDK)
+- Zig 0.16, std.http.Client (TLS), std.json, std.posix (raw fd I/O + sockets)
+- MCP JSON-RPC by hand (no SDK); stdio + minimal `POST /mcp` (`--http`)
 
 ### PHP (partial)
-- PHP 8.0+ CLI, ext-curl
-- Single file, no dependencies
+- PHP 8.0+ CLI, ext-curl, stream_socket_server
+- Single file, no dependencies; stdio + minimal `POST /mcp` (`--http`)
 
 ### Common
 - Google Health API v4

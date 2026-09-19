@@ -69,6 +69,49 @@ jobs:
           name: go-binaries
           path: dist/
 
+  zig-binaries:
+    name: Zig binaries (musl, static)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: |
+          curl -sSL https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz | tar -xJ -C /tmp
+      - name: Build static musl binaries
+        run: |
+          mkdir -p dist
+          for t in x86_64 aarch64; do
+            cd zig && /tmp/zig-x86_64-linux-0.16.0/zig build -Doptimize=ReleaseSmall \
+              -Dtarget=$t-linux-musl --prefix /tmp/zig-out-$t && cd ..
+            cp "/tmp/zig-out-$t/bin/google-health-mcp" "dist/google-health-mcp-zig-linux-$t"
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: zig-binaries
+          path: dist/
+
+  php-package:
+    name: PHP phar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: curl
+      - name: Build executable phar
+        run: |
+          php -d phar.readonly=0 -r '
+            $p = new Phar("google-health-mcp.phar");
+            $p->buildFromDirectory("php/", "/\.php$/");
+            $p->setStub("#!/usr/bin/env php\n" . $p->createDefaultStub("main.php"));
+          '
+          chmod +x google-health-mcp.phar
+          mkdir -p dist && mv google-health-mcp.phar dist/
+      - uses: actions/upload-artifact@v7
+        with:
+          name: php-dist
+          path: dist/
+
   python-package:
     name: Python package
     runs-on: ubuntu-latest
@@ -110,7 +153,7 @@ jobs:
 
   release:
     name: GitHub Release
-    needs: [rust-binaries, go-binaries, python-package]
+    needs: [rust-binaries, go-binaries, python-package, zig-binaries, php-package]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v8

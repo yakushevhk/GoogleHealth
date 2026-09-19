@@ -13,6 +13,18 @@ export GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... GOOGLE_REFRESH_TOKEN=...
 ./zig-out/bin/google-health-mcp
 ```
 
+## HTTP Mode
+
+```bash
+export MCP_API_KEY=your-secret
+./zig-out/bin/google-health-mcp --http    # HOST=127.0.0.1, PORT=3000 by default
+```
+
+POST one JSON-RPC request per call to `http://127.0.0.1:3000/mcp` (or `/`) with
+`Authorization: Bearer $MCP_API_KEY`. Exits with code 1 if `MCP_API_KEY` is
+unset; the key comparison is constant-time. Minimal transport: POST-only, no
+SSE or sessions.
+
 ## Tools
 
 `list_data_types`, `describe_data_type`, `list_data_points`, `get_data_point`,

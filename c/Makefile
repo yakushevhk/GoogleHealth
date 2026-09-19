@@ -3,7 +3,7 @@ CFLAGS = -Wall -Wextra -O2 -std=c11
 LDFLAGS = -lcurl
 TARGET = google-health-mcp
 
-SRCS = main.c auth.c cJSON.c
+SRCS = main.c auth.c cJSON.c http.c
 OBJS = $(SRCS:.c=.o)
 
 all: $(TARGET)

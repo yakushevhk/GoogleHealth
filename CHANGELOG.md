@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **PHP** (`php/`, partial) — single-file stdio MCP server mirroring `c/`: OAuth2 refresh via ext-curl, 39-type registry, 15 core tools, path-segment validation; CI lint (`php -l`) + stdio smoke job, probed by the parity check
 - **Zig** (`zig/`) promoted from PoC to the same partial level as C — OAuth2 + HTTPS via `std.http.Client`, all 15 core tools, `filter_name`/`filter_field` metadata, path-segment validation
 
+#### Minimal HTTP mode for partial implementations
+- `c/`, `zig/`, `php/` now accept `--http`: POST JSON-RPC to `127.0.0.1:3000/mcp` (HOST/PORT env) with `Authorization: Bearer $MCP_API_KEY`; exits(1) if `MCP_API_KEY` is unset and compares keys in constant time — same security contract as the full implementations (POST-only, no SSE/sessions); CI smoke-tests 401 + authed `tools/list` for all three
+- `check-parity.py` deepened: probes `describe_data_type` for every advertised data-type id and verifies error signalling for unknown tools and missing required arguments
+- Release artifacts: static musl Zig binaries (linux x86_64 + aarch64) and an executable `google-health-mcp.phar`, both included in `SHA256SUMS`
+
 #### Cross-implementation conformance
 - `spec/` — canonical snapshots of all 35 tools, 3 resources + 1 resource template, 3 prompts, and 39 data types, generated from the Rust reference
 - `scripts/check-parity.py` — launches every implementation over stdio and diffs tools/resources/prompts/`list_data_types` output against `spec/` (C/Zig/PHP checked as subsets); `make parity` / `make update-spec`

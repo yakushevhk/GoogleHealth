@@ -1,7 +1,9 @@
 /* Google Health MCP Server — C implementation
- * MCP JSON-RPC 2.0 over stdio. 39 data types, 15 core tools.
- * Dependencies: cJSON (vendored), libcurl.
+ * MCP JSON-RPC 2.0 over stdio (or POST /mcp with --http). 39 data types,
+ * 15 core tools. Dependencies: cJSON (vendored), libcurl.
  */
+
+#define _DEFAULT_SOURCE /* strdup under -std=c11 */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -285,27 +287,32 @@ static char *dispatch_tool(AuthState *auth, const char *name, cJSON *args) {
 
 /* ─── MCP protocol ─────────────────────────────────────────────────────────── */
 
-static void send_response(const char *id_str, const char *result_json) {
-    printf("{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":%s}\n", id_str, result_json);
-    fflush(stdout);
+static char *wrap_result(const char *id_str, const char *result_json) {
+    size_t n = strlen(result_json) + strlen(id_str) + 64;
+    char *out = malloc(n);
+    snprintf(out, n, "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":%s}", id_str, result_json);
+    return out;
 }
 
-static void handle_request(AuthState *auth, const char *line) {
+/* Build the full JSON-RPC response for `line`; returns NULL for notifications. */
+char *build_response(AuthState *auth, const char *line) {
     cJSON *req = cJSON_Parse(line);
-    if (!req) return;
+    if (!req) return NULL;
 
     cJSON *id = cJSON_GetObjectItem(req, "id");
     cJSON *method = cJSON_GetObjectItem(req, "method");
     cJSON *params = cJSON_GetObjectItem(req, "params");
 
-    if (!method || !cJSON_IsString(method)) { cJSON_Delete(req); return; }
+    if (!method || !cJSON_IsString(method)) { cJSON_Delete(req); return NULL; }
     const char *m = method->valuestring;
 
     char id_str[32] = "null";
     if (id && cJSON_IsNumber(id)) snprintf(id_str, sizeof(id_str), "%d", id->valueint);
 
+    char *response = NULL;
+
     if (strcmp(m, "initialize") == 0) {
-        send_response(id_str, "{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{\"tools\":{},\"resources\":{},\"prompts\":{}},\"serverInfo\":{\"name\":\"google-health-mcp\",\"version\":\"0.2.0\"}}");
+        response = wrap_result(id_str, "{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{\"tools\":{},\"resources\":{},\"prompts\":{}},\"serverInfo\":{\"name\":\"google-health-mcp\",\"version\":\"0.2.0\"}}");
     } else if (strcmp(m, "notifications/initialized") == 0) {
         /* no response for notifications */
     } else if (strcmp(m, "tools/list") == 0) {
@@ -322,7 +329,7 @@ static void handle_request(AuthState *auth, const char *line) {
             cJSON_AddItemToArray(arr, t);
         }
         char *out = cJSON_PrintUnformatted(root);
-        send_response(id_str, out);
+        response = wrap_result(id_str, out);
         free(out);
         cJSON_Delete(root);
     } else if (strcmp(m, "tools/call") == 0) {
@@ -341,22 +348,42 @@ static void handle_request(AuthState *auth, const char *line) {
         cJSON_AddItemToArray(content, item);
 
         char *out = cJSON_PrintUnformatted(root);
-        send_response(id_str, out);
+        response = wrap_result(id_str, out);
         free(out);
         free(result);
         cJSON_Delete(root);
     } else {
-        printf("{\"jsonrpc\":\"2.0\",\"id\":%s,\"error\":{\"code\":-32601,\"message\":\"Method not found\"}}\n", id_str);
-        fflush(stdout);
+        char err[128];
+        snprintf(err, sizeof(err), "{\"jsonrpc\":\"2.0\",\"id\":%s,\"error\":{\"code\":-32601,\"message\":\"Method not found\"}}", id_str);
+        response = strdup(err);
     }
 
     cJSON_Delete(req);
+    return response;
 }
 
 /* ─── Main ─────────────────────────────────────────────────────────────────── */
 
-int main(void) {
+int http_serve(AuthState *auth, const char *host, int port, const char *api_key);
+
+int main(int argc, char **argv) {
     AuthState *auth = auth_init();
+
+    if (argc > 1 && strcmp(argv[1], "--http") == 0) {
+        const char *api_key = getenv("MCP_API_KEY");
+        if (!api_key || !api_key[0]) {
+            fprintf(stderr, "MCP_API_KEY env var required for --http mode\n");
+            auth_free(auth);
+            return 1;
+        }
+        const char *host = getenv("HOST");
+        if (!host || !host[0]) host = "127.0.0.1";
+        const char *port_s = getenv("PORT");
+        int port = port_s ? atoi(port_s) : 3000;
+        if (port <= 0 || port > 65535) port = 3000;
+        fprintf(stderr, "google-health-mcp (C) — HTTP mode on %s:%d/mcp\n", host, port);
+        return http_serve(auth, host, port, api_key);
+    }
 
     fprintf(stderr, "google-health-mcp (C) — stdio mode, %d types, %d tools\n", NUM_TYPES, NUM_TOOLS);
 
@@ -368,7 +395,12 @@ int main(void) {
         if (l > 0 && line[l-1] == '\n') line[l-1] = '\0';
         if (strlen(line) == 0) continue;
 
-        handle_request(auth, line);
+        char *resp = build_response(auth, line);
+        if (resp) {
+            printf("%s\n", resp);
+            fflush(stdout);
+            free(resp);
+        }
     }
 
     free(line);
