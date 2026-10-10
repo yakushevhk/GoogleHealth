@@ -7,7 +7,7 @@ repository = "https://github.com/yakushevhk/GoogleHealth"
 license = "MIT"
 
 [dependencies]
-rust-mcp-sdk = { version = "1.0", default-features = false, features = ["server", "macros", "stdio", "streamable-http", "auth"] }
+rust-mcp-sdk = { version = "2.0", default-features = false, features = ["server", "macros", "stdio", "streamable-http", "auth"] }
 rust-mcp-axum = "1.0"
 tokio = { version = "1", features = ["full"] }
 async-trait = "0.1"
