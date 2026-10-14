@@ -1,6 +1,6 @@
 # rust-mcp-sdk requires Rust >= 1.80; pin the builder to the toolchain this
 # crate is developed against.
-FROM rust:1.97-slim-bookworm AS builder
+FROM rust:1.99-slim-bookworm AS builder
 
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
